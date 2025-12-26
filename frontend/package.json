@@ -1,0 +1,33 @@
+{
+  "name": "whatssuite-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode development",
+    "build:dev": "vite build --mode development",
+    "build:qa": "vite build --mode qa",
+    "build:prod": "vite build --mode production",
+    "preview": "vite preview --mode development",
+    "preview:qa": "vite preview --mode qa",
+    "preview:prod": "vite preview --mode production"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.13.0",
+    "@emotion/styled": "^11.13.0",
+    "@mui/icons-material": "^5.15.21",
+    "@mui/material": "^5.15.21",
+    "dayjs": "^1.11.13",
+    "qrcode": "^1.5.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.1",
+    "socket.io-client": "^4.7.5",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.2",
+    "vite-plugin-compression": "^0.5.1",
+    "vite": "^5.2.10"
+  }
+}

@@ -1,0 +1,42 @@
+Elastic License 2.0 (ELv2) – Adaptada para WhatsSuite
+
+Fecha: 2024-12-26
+
+1. Aceptación
+   Al usar, copiar, modificar o distribuir el Software (definido abajo) usted acepta los términos de esta licencia. Si no está de acuerdo, no use el Software.
+
+2. Definiciones
+   “Software” significa el código fuente y cualquier obra derivada de este repositorio identificado como “WhatsSuite”.
+   “Usted” significa la persona o entidad que ejerce derechos bajo esta licencia.
+
+3. Concesión de licencia
+   Sujeto al cumplimiento de esta licencia, el Licenciante le otorga un derecho limitado, no exclusivo, intransferible y revocable para:
+   - usar, reproducir y modificar el Software; y
+   - distribuir copias originales o modificadas del Software,
+   todo ello únicamente para fines internos y no comerciales, y siempre que se cumplan las condiciones de la Sección 4.
+
+4. Condiciones de licencia
+   4.1. No comercial: Queda prohibido cualquier uso con fines comerciales, incluyendo la venta, reventa, licenciamiento, sublicenciamiento o monetización directa o indirecta del Software o de obras derivadas.
+   4.2. No ofrecer como servicio: No puede proporcionar el Software a terceros como servicio administrado, SaaS, PaaS, u oferta equivalente.
+   4.3. Sin reventa: No puede revender, arrendar o prestar el Software ni sus derivados.
+   4.4. Conservación de avisos: Debe mantener este aviso de licencia y avisos de copyright en todas las copias y distribuciones.
+   4.5. Cumplimiento técnico: No puede eliminar, desactivar o eludir mecanismos de licenciamiento o seguridad incorporados en el Software.
+   4.6. Ausencia de restricciones adicionales: No puede imponer términos adicionales que limiten derechos del Licenciante ni alterar los términos de esta licencia.
+
+5. Marcas
+   Esta licencia no otorga derechos sobre nombres, logotipos o marcas del Licenciante o de terceros.
+
+6. Terminación
+   Si incumple esta licencia, sus derechos terminan automáticamente. Tras la terminación debe cesar el uso del Software y destruir copias en su poder.
+
+7. Exclusión de garantías
+   EL SOFTWARE SE PROPORCIONA “TAL CUAL”, SIN GARANTÍAS DE NINGÚN TIPO, EXPRESAS O IMPLÍCITAS, INCLUYENDO COMERCIABILIDAD, ADECUACIÓN A UN PROPÓSITO PARTICULAR Y NO INFRACCIÓN.
+
+8. Limitación de responsabilidad
+   EN NINGÚN CASO EL LICENCIANTE SERÁ RESPONSABLE POR DAÑOS DIRECTOS, INDIRECTOS, INCIDENTALES, ESPECIALES, EJEMPLARES O CONSECUENTES, INCLUIDOS LUCRO CESANTE, PÉRDIDA DE DATOS O INTERRUPCIÓN DEL NEGOCIO, AUN CUANDO SE HAYA ADVERTIDO DE TAL POSIBILIDAD.
+
+9. General
+   Esta licencia se rige por las leyes aplicables en la jurisdicción del Licenciante, excluyendo sus normas sobre conflicto de leyes. Si alguna disposición se considera inválida, el resto permanecerá vigente.
+
+Aviso de referencia
+   Esta licencia se basa en la Elastic License 2.0. En caso de conflicto, prevalecerán las restricciones adicionales de no uso comercial, no reventa y no ofrecimiento como servicio establecidas en este documento.

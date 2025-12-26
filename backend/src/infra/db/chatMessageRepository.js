@@ -1,0 +1,282 @@
+import pool from './postgres.js';
+import { cacheMessages, getCachedMessages, invalidateChat } from '../cache/chatCache.js';
+import logger from '../logging/logger.js';
+
+const mapMessage = (row) => ({
+  id: row.id,
+  chatId: row.chat_id,
+  whatsappSessionName: row.whatsapp_session_name,
+  remoteNumber: row.remote_number,
+  connectionId: row.connection_id,
+  direction: row.direction,
+  messageType: row.message_type,
+  content: row.content,
+  whatsappMessageId: row.whatsapp_message_id,
+  status: row.status,
+  timestamp: row.timestamp,
+  deletedAt: row.deleted_at,
+  updatedAt: row.updated_at,
+  createdAt: row.created_at
+});
+
+const decodeCursor = (cursor) => {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64').toString('utf8'));
+    if (!parsed?.t || !parsed?.id) return null;
+    const ts = new Date(parsed.t);
+    if (Number.isNaN(ts.getTime())) return null;
+    return { ts, id: parsed.id };
+  } catch {
+    return null;
+  }
+};
+
+const encodeCursor = (row) => {
+  const sortAt = row.sort_at || row.timestamp || row.created_at || row.createdAt || Date.now();
+  const payload = { t: new Date(sortAt).toISOString(), id: row.id };
+  return Buffer.from(JSON.stringify(payload)).toString('base64');
+};
+
+export const findMessageByUniqueKey = async ({ sessionName, remoteNumber, whatsappMessageId, timestamp = null, tenantId = null }) => {
+  if (!sessionName || !remoteNumber || !whatsappMessageId) return null;
+  const params = [sessionName, remoteNumber, whatsappMessageId];
+  let sql = `
+    SELECT * FROM chat_messages
+    WHERE whatsapp_session_name = $1
+      AND remote_number = $2
+      AND whatsapp_message_id = $3
+  `;
+  if (tenantId) {
+    params.push(tenantId);
+    sql += ` AND tenant_id = $${params.length}`;
+  }
+  if (timestamp) {
+    params.push(timestamp);
+    sql += ` AND timestamp = $${params.length}`;
+  }
+  sql += ' LIMIT 1';
+  const { rows } = await pool.query(sql, params);
+  return rows[0] ? mapMessage(rows[0]) : null;
+};
+
+export const insertMessage = async ({
+  chatId,
+  direction,
+  content,
+  messageType = 'unknown',
+  whatsappMessageId = null,
+  timestamp = null,
+  whatsappSessionName = null,
+  remoteNumber = null,
+  status = 'received',
+  tenantId = null
+}) => {
+  let resolvedTenant = tenantId;
+  let resolvedConnectionId = null;
+  if (!resolvedTenant || !resolvedConnectionId) {
+    const res = await pool.query(
+      `SELECT tenant_id, whatsapp_session_name, queue_id
+       FROM chats
+       WHERE id = $1
+       LIMIT 1`,
+      [chatId]
+    );
+    resolvedTenant = resolvedTenant || res.rows[0]?.tenant_id || null;
+    const sessionName = whatsappSessionName || res.rows[0]?.whatsapp_session_name || null;
+    if (sessionName) {
+      const connRes = await pool.query(
+        `SELECT connection_id FROM whatsapp_sessions WHERE session_name = $1 LIMIT 1`,
+        [sessionName]
+      );
+      resolvedConnectionId = connRes.rows[0]?.connection_id || sessionName;
+    }
+  }
+  resolvedConnectionId = resolvedConnectionId || whatsappSessionName || null;
+
+  const params = [
+    chatId,
+    direction,
+    messageType,
+    content,
+    whatsappMessageId,
+    whatsappSessionName,
+    resolvedConnectionId,
+    remoteNumber,
+    status,
+    resolvedTenant
+  ];
+  let sql = `INSERT INTO chat_messages (chat_id, direction, message_type, content, whatsapp_message_id, whatsapp_session_name, connection_id, remote_number, status, tenant_id`;
+  let valuesSql = `VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10`;
+
+  if (timestamp) {
+    params.push(timestamp);
+    sql += `, timestamp`;
+    valuesSql += `, $11`;
+  }
+
+  sql += `) ${valuesSql}) RETURNING *`;
+
+  const { rows } = await pool.query(sql, params);
+  const msg = mapMessage(rows[0]);
+  await invalidateChat(chatId);
+  return msg;
+};
+
+export const updateMessageStatus = async ({
+  sessionName,
+  remoteNumber,
+  whatsappMessageId,
+  status = null,
+  editPayload = null,
+  timestamp = null,
+  tenantId = null
+}) => {
+  const normalizedRemote = remoteNumber ? String(remoteNumber).replace(/[^\d]/g, '') : remoteNumber;
+  const baseParams = [status, editPayload, timestamp].map((v) => (v === undefined ? null : v));
+
+  // Intentos con remoteNumber (crudo y normalizado)
+  const remoteCandidates = Array.from(
+    new Set([remoteNumber, normalizedRemote].filter((v) => v !== null && v !== undefined && v !== ''))
+  );
+  for (const remote of remoteCandidates) {
+    const paramsWithRemote = [...baseParams, sessionName, remote, whatsappMessageId];
+    const updateSql = `
+      UPDATE chat_messages
+      SET status = COALESCE($1, status),
+          content = CASE WHEN $2::jsonb IS NOT NULL THEN $2::jsonb ELSE content END,
+          timestamp = COALESCE($3, timestamp),
+          updated_at = NOW()
+      WHERE whatsapp_session_name = $4
+        AND remote_number = $5
+        AND whatsapp_message_id = $6
+        ${tenantId ? `AND tenant_id = $${paramsWithRemote.push(tenantId)}` : ''}
+      RETURNING *`;
+
+    let { rows } = await pool.query(updateSql, paramsWithRemote);
+    if (rows[0]) {
+      const msg = mapMessage(rows[0]);
+      await invalidateChat(msg.chatId);
+      return msg;
+    }
+  }
+
+  // Segundo intento: ignorar remoteNumber; algunas actualizaciones llegan con jid alterno.
+  const paramsWithoutRemote = [...baseParams, sessionName, whatsappMessageId];
+  const fallbackSql = `
+    UPDATE chat_messages
+    SET status = COALESCE($1, status),
+        content = CASE WHEN $2::jsonb IS NOT NULL THEN $2::jsonb ELSE content END,
+        timestamp = COALESCE($3, timestamp),
+        updated_at = NOW()
+    WHERE whatsapp_session_name = $4
+      AND whatsapp_message_id = $5
+      ${tenantId ? `AND tenant_id = $${paramsWithoutRemote.push(tenantId)}` : ''}
+    RETURNING *`;
+  let res = await pool.query(fallbackSql, paramsWithoutRemote);
+  if (res.rows[0]) {
+    const msg = mapMessage(res.rows[0]);
+    await invalidateChat(msg.chatId);
+    return msg;
+  }
+
+  // Tercer intento: solo por whatsapp_message_id (último recurso).
+  const paramsById = [...baseParams, whatsappMessageId];
+  const idOnlySql = `
+    UPDATE chat_messages
+    SET status = COALESCE($1, status),
+        content = CASE WHEN $2::jsonb IS NOT NULL THEN $2::jsonb ELSE content END,
+        timestamp = COALESCE($3, timestamp),
+        updated_at = NOW()
+    WHERE whatsapp_message_id = $4
+      ${tenantId ? `AND tenant_id = $${paramsById.push(tenantId)}` : ''}
+    RETURNING *`;
+  res = await pool.query(idOnlySql, paramsById);
+  if (!res.rows[0] && whatsappMessageId) {
+    // Intento extra: insensible a mayúsculas (algunos drivers envían IDs upper/lower)
+    const paramsCaseInsensitive = [...baseParams, whatsappMessageId.toLowerCase()];
+    const caseSql = `
+      UPDATE chat_messages
+      SET status = COALESCE($1, status),
+          content = CASE WHEN $2::jsonb IS NOT NULL THEN $2::jsonb ELSE content END,
+          timestamp = COALESCE($3, timestamp),
+          updated_at = NOW()
+      WHERE LOWER(whatsapp_message_id) = $4
+        ${tenantId ? `AND tenant_id = $${paramsCaseInsensitive.push(tenantId)}` : ''}
+      RETURNING *`;
+    res = await pool.query(caseSql, paramsCaseInsensitive);
+  }
+  if (!res.rows[0]) {
+    logger.warn(
+      { sessionName, remoteNumber, whatsappMessageId, status, tag: 'MSG_STATUS_UPDATE_MISS' },
+      'No se encontró mensaje para actualizar estado'
+    );
+    return null;
+  }
+  const msg = mapMessage(res.rows[0]);
+  await invalidateChat(msg.chatId);
+  return msg;
+};
+
+export const softDeleteMessage = async ({ sessionName, remoteNumber, whatsappMessageId, tenantId = null }) => {
+  const params = [sessionName, remoteNumber, whatsappMessageId];
+  const { rows } = await pool.query(
+    `UPDATE chat_messages
+     SET deleted_at = NOW(),
+         status = 'deleted',
+         updated_at = NOW()
+     WHERE whatsapp_session_name = $1
+       AND remote_number = $2
+       AND whatsapp_message_id = $3
+       ${tenantId ? `AND tenant_id = $${params.push(tenantId)}` : ''}
+     RETURNING *`,
+    params
+  );
+  if (!rows[0]) return null;
+  const msg = mapMessage(rows[0]);
+  await invalidateChat(msg.chatId);
+  return msg;
+};
+
+export const listMessagesByChat = async ({ chatId, limit = 50, cursor = null }) => {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
+  const cursorData = decodeCursor(cursor);
+
+  const params = [chatId];
+  let cursorClause = '';
+  if (cursorData) {
+    params.push(cursorData.ts);
+    params.push(cursorData.id);
+    const tsIdx = params.length - 1;
+    const idIdx = params.length;
+    cursorClause = `AND (COALESCE(timestamp, created_at), id) < ($${tsIdx}, $${idIdx})`;
+  }
+  params.push(safeLimit);
+  const { rows } = await pool.query(
+    `SELECT *, COALESCE(timestamp, created_at) AS sort_at
+     FROM chat_messages
+     WHERE chat_id = $1 ${cursorClause}
+     ORDER BY sort_at DESC, id DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  const messages = rows.map(mapMessage);
+  const nextCursor = rows.length === safeLimit ? encodeCursor(rows[rows.length - 1]) : null;
+  return { messages, nextCursor };
+};
+
+export const findMediaByRelativePath = async (relativePath) => {
+  if (!relativePath) return null;
+  const { rows } = await pool.query(
+    `SELECT chat_id, content
+     FROM chat_messages
+     WHERE content->'media'->>'relativePath' = $1
+     LIMIT 1`,
+    [relativePath]
+  );
+  if (!rows[0]) return null;
+  return {
+    chatId: rows[0].chat_id,
+    media: rows[0].content?.media || null
+  };
+};

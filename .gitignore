@@ -1,0 +1,70 @@
+# ========================================================================
+# WhatsSuite – gitignore
+# Evita subir credenciales, builds, dependencias, artefactos temporales y
+# configuraciones locales. Ajustado para stack PERN (Node/React) dockerizado.
+# ========================================================================
+
+# --- Variables de entorno y secretos ---
+.env
+.env.*
+*.env
+*.secret
+*.key
+*.pem
+*.crt
+!.env.example
+
+# --- Node.js (backend y tooling) ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npmrc
+coverage/
+
+# --- Frontend (React/Vite) ---
+frontend/dist/
+frontend/build/
+.cache/
+.vite/
+
+# --- Docker y contenedores ---
+docker-compose.override.yml
+*.log
+*.pid
+*.sock
+# Directorios de datos locales (volúmenes o montajes)
+postgres-data/
+redis-data/
+media-data/
+storage/media/
+
+# --- Bases de datos / dumps ---
+dumps/
+*.sql
+*.dump
+*.bak
+
+# --- Logs y trazas ---
+logs/
+*.log
+debug.log
+error.log
+
+# --- IDEs y editores ---
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+
+# --- Sistema operativo ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Archivos temporales ---
+tmp/
+temp/
+*.tmp
+*.cache

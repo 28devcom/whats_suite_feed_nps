@@ -1,0 +1,1126 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Box,
+  Chip,
+  CircularProgress,
+  Snackbar,
+  Alert,
+  Tabs,
+  Tab,
+  Stack,
+  Typography,
+  TextField,
+  InputAdornment,
+  IconButton,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  FormHelperText
+} from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import { useSearchParams } from 'react-router-dom';
+import PageLayout from '../components/PageLayout.jsx';
+import ChatInbox from '../components/chatExclusive/ChatInbox.jsx';
+import ChatWindow from '../components/chatExclusive/ChatWindow.jsx';
+import ReassignModal from '../components/chatExclusive/ReassignModal.jsx';
+import createChatService from '../services/chat.service.js';
+import createQueueMembershipService from '../services/queueMembership.service.js';
+import { createWhatsappService } from '../services/whatsapp.service.js';
+import createQuickRepliesService from '../services/quickReplies.service.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { ApiError } from '../api/client.js';
+import { getEventsSocket } from '../lib/eventsSocket.js';
+
+const ChatView = () => {
+  const { token, logout, user } = useAuth();
+  const chatService = useMemo(
+    () =>
+      createChatService({
+        getToken: () => token,
+        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+      }),
+    [token, logout]
+  );
+  const queueService = useMemo(
+    () =>
+      createQueueMembershipService({
+        getToken: () => token,
+        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+      }),
+    [token, logout]
+  );
+  const whatsappService = useMemo(
+    () =>
+      createWhatsappService({
+        getToken: () => token,
+        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+      }),
+    [token, logout]
+  );
+  const quickReplyService = useMemo(
+    () =>
+      createQuickRepliesService({
+        getToken: () => token,
+        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+      }),
+    [token, logout]
+  );
+
+  const [chats, setChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [messages, setMessages] = useState({});
+  const [unread, setUnread] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [snackbar, setSnackbar] = useState(null);
+  const socketRef = useRef(null);
+  const role = user?.role;
+  const [showReassign, setShowReassign] = useState(false);
+  const [connections, setConnections] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [summary, setSummary] = useState({ OPEN: 0, UNASSIGNED: 0, CLOSED: 0 });
+  const [activeTab, setActiveTab] = useState('OPEN');
+  const [searchParams] = useSearchParams();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [chatCursor, setChatCursor] = useState(null);
+  const [loadingMoreChats, setLoadingMoreChats] = useState(false);
+  const [scrollKey, setScrollKey] = useState(0);
+  const messageKeysRef = useRef({});
+  const messageCursorRef = useRef({});
+  const hasMoreRef = useRef({});
+  const [messagesLoadingMap, setMessagesLoadingMap] = useState({});
+  const [hasMoreMap, setHasMoreMap] = useState({});
+  const activeTabRef = useRef(activeTab);
+  const activeChatIdRef = useRef(activeChatId);
+  const userRef = useRef(user);
+  const quickReplyCacheRef = useRef(new Map());
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [newChatForm, setNewChatForm] = useState({ sessionName: '', contact: '', queueId: '' });
+  const [newChatLoading, setNewChatLoading] = useState(false);
+  const [availableConnections, setAvailableConnections] = useState([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const selectedConnection = useMemo(
+    () => availableConnections.find((c) => c.name === newChatForm.sessionName) || null,
+    [availableConnections, newChatForm.sessionName]
+  );
+  const connectionQueues = useMemo(() => selectedConnection?.queues || [], [selectedConnection]);
+
+  const activeChat = useMemo(() => chats.find((c) => c.id === activeChatId), [chats, activeChatId]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    quickReplyCacheRef.current.clear();
+  }, [token]);
+
+  const getMessageKey = useCallback((m) => {
+    if (!m) return null;
+    return (
+      m.whatsappMessageId ||
+      m.id ||
+      m?.content?.messageId ||
+      m?.content?.id ||
+      `${m?.direction || ''}-${m?.content?.text || ''}-${m?.timestamp || m?.createdAt || ''}`
+    );
+  }, []);
+
+  const dedupeMessages = useCallback((items = []) => {
+    const sortValue = (m) => Number(new Date(m?.timestamp || m?.createdAt || 0).getTime()) || 0;
+    const createdValue = (m) => Number(new Date(m?.createdAt || m?.timestamp || 0).getTime()) || 0;
+    const idValue = (m) => m?.whatsappMessageId || m?.id || '';
+    const map = new Map();
+    for (const m of items) {
+      if (!m) continue;
+      const key = getMessageKey(m);
+      const ts = sortValue(m);
+      if (!map.has(key)) {
+        map.set(key, { ...m, timestamp: m.timestamp || m.createdAt });
+      } else {
+        const prev = map.get(key);
+        const prevTs = sortValue(prev);
+        if (ts > prevTs) {
+          map.set(key, { ...m, timestamp: m.timestamp || m.createdAt });
+        } else {
+          // Combinar metadatos (estado, payload) aunque el timestamp sea igual/menor para no perder ACKs.
+          map.set(key, {
+            ...prev,
+            ...m,
+            status: m.status || prev.status,
+            timestamp: prev.timestamp || m.timestamp || prev.createdAt || m.createdAt
+          });
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const ta = sortValue(a);
+      const tb = sortValue(b);
+      if (ta !== tb) return ta - tb;
+      const ca = createdValue(a);
+      const cb = createdValue(b);
+      if (ca !== cb) return ca - cb;
+      return idValue(a) < idValue(b) ? -1 : idValue(a) > idValue(b) ? 1 : 0;
+    });
+  }, [getMessageKey]);
+
+  const handleError = (err) => {
+    let msg = err instanceof ApiError ? err.message : err?.message || 'Error';
+    if (err instanceof ApiError && err.status === 403) {
+      msg = 'Este chat está siendo atendido por otro agente';
+    }
+    setSnackbar({ severity: 'error', message: msg });
+  };
+
+  const searchQuickReplies = useCallback(
+    async (term) => {
+      const normalized = (term || '').trim().toLowerCase();
+      const cacheKey = normalized || '_all';
+      if (quickReplyCacheRef.current.has(cacheKey)) {
+        return quickReplyCacheRef.current.get(cacheKey);
+      }
+      try {
+        const res = await quickReplyService.list({ search: normalized, limit: 12, active: true });
+        const items = res?.items || [];
+        quickReplyCacheRef.current.set(cacheKey, items);
+        return items;
+      } catch (err) {
+        handleError(err);
+        return [];
+      }
+    },
+    [quickReplyService]
+  );
+
+  const sendQuickReply = useCallback(
+    async ({ quickReplyId, variables }) => {
+      if (!activeChatId) throw new Error('Selecciona un chat');
+      try {
+        const result = await quickReplyService.send(quickReplyId, { chatId: activeChatId, variables });
+        const message = result?.message || result;
+        const normalizedMessage = message?.id ? { ...message, quickReply: result?.quickReply } : message;
+        setMessages((prev) => {
+          const list = prev[activeChatId] || [];
+          const nextList = normalizedMessage ? dedupeMessages([...list, normalizedMessage]) : list;
+          return { ...prev, [activeChatId]: nextList };
+        });
+        setUnread((prev) => ({ ...prev, [activeChatId]: 0 }));
+        setSnackbar({ severity: 'success', message: 'Respuesta rápida enviada' });
+        return normalizedMessage;
+      } catch (err) {
+        handleError(err);
+        throw err;
+      }
+    },
+    [activeChatId, quickReplyService, dedupeMessages]
+  );
+
+  const quickReplyApi = useMemo(
+    () => ({ search: searchQuickReplies, send: sendQuickReply }),
+    [searchQuickReplies, sendQuickReply]
+  );
+
+  const normalizeContactInput = useCallback((value) => {
+    if (!value) return '';
+    return String(value).replace(/\D+/g, '');
+  }, []);
+
+  const hasOpenChatForContact = useCallback(
+    (sessionName, contactValue) => {
+      if (!sessionName || !contactValue) return false;
+      const normalizedContact = normalizeContactInput(contactValue);
+      return chats.some(
+        (c) =>
+          (c.whatsappSessionName || '').toLowerCase() === sessionName.toLowerCase() &&
+          c.status === 'OPEN' &&
+          normalizeContactInput(c.remoteNumber || '') === normalizedContact
+      );
+    },
+    [chats, normalizeContactInput]
+  );
+
+  const loadConnectionsCatalog = useCallback(async () => {
+    setConnectionsLoading(true);
+    try {
+      const response = await chatService.listConnections();
+      const list = Array.isArray(response?.connections) ? response.connections : Array.isArray(response) ? response : [];
+      const normalized = list.map((s) => ({
+        name: s.sessionName || s.session_name || s.name,
+        status: (s.status || s.state || '').toLowerCase() || 'unknown',
+        queues: Array.isArray(s.queues)
+          ? s.queues
+              .filter((q) => q && q.id && q.name)
+              .map((q) => ({ id: q.id, name: q.name }))
+          : []
+      }));
+      setAvailableConnections(normalized.filter((c) => c.name));
+    } catch (_err) {
+      setAvailableConnections([]);
+    } finally {
+      setConnectionsLoading(false);
+    }
+  }, [chatService]);
+
+  useEffect(() => {
+    if (newChatOpen) {
+      loadConnectionsCatalog();
+    }
+  }, [newChatOpen, loadConnectionsCatalog]);
+
+  useEffect(() => {
+    const autoQueueId = connectionQueues.length === 1 ? connectionQueues[0].id : '';
+    setNewChatForm((prev) => {
+      if (prev.sessionName !== selectedConnection?.name) return prev;
+      if (prev.queueId === autoQueueId) return prev;
+      return { ...prev, queueId: autoQueueId };
+    });
+  }, [connectionQueues, selectedConnection?.name]);
+
+  const openNewChatModal = () => {
+    setNewChatForm({ sessionName: '', contact: '', queueId: '' });
+    setNewChatOpen(true);
+  };
+
+  const handleCreateChat = async () => {
+    const sessionName = newChatForm.sessionName.trim();
+    const contact = newChatForm.contact.trim();
+    const queueId = newChatForm.queueId;
+    if (!sessionName || !contact) {
+      setSnackbar({ severity: 'warning', message: 'Conexión y contacto son requeridos' });
+      return;
+    }
+    if (!queueId) {
+      setSnackbar({ severity: 'warning', message: 'Selecciona una cola para la conexión' });
+      return;
+    }
+    if (hasOpenChatForContact(sessionName, contact)) {
+      setSnackbar({ severity: 'error', message: 'Ya existe un chat activo para este contacto en esta conexión' });
+      return;
+    }
+    setNewChatLoading(true);
+    try {
+      const chat = await chatService.createChat({ sessionName, contact, queueId });
+      if (chat?.id) {
+        const normalized = normalizeChat(chat);
+        setChats((prev) => {
+          const map = new Map(prev.map((c) => [c.id, c]));
+          map.set(normalized.id, { ...map.get(normalized.id), ...normalized });
+          return Array.from(map.values());
+        });
+        setActiveChatId(chat.id);
+        await loadMessages(chat.id);
+        setSnackbar({ severity: 'success', message: 'Chat abierto' });
+      }
+      setNewChatOpen(false);
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setNewChatLoading(false);
+    }
+  };
+
+  const isChatVisible = (chat) => {
+    if (!chat) return false;
+    if (role === 'ADMIN' || role === 'SUPERVISOR') return true;
+    if (role === 'AGENTE') {
+      return !chat.assignedUserId || chat.assignedUserId === user?.id;
+    }
+    return false;
+  };
+
+  const matchesTab = (chat) => {
+    if (!chat) return false;
+    if (activeTab === 'UNASSIGNED') return chat.status === 'UNASSIGNED';
+    if (activeTab === 'CLOSED') return chat.status === 'CLOSED';
+    return chat.status === 'OPEN';
+  };
+
+  const adjustSummary = useCallback((prevStatus, newStatus) => {
+    const norm = (s) => (s || '').toUpperCase();
+    const prev = norm(prevStatus);
+    const next = norm(newStatus);
+    setSummary((curr) => {
+      const res = { ...curr };
+      if (prev && res[prev] !== undefined) res[prev] = Math.max(0, (res[prev] || 0) - 1);
+      if (next && res[next] !== undefined) res[next] = (res[next] || 0) + 1;
+      return res;
+    });
+  }, []);
+
+  const normalizeChat = useCallback((chat) => {
+    if (!chat) return chat;
+    const queueId = chat.queueId || chat.queue_id || chat.queue?.id || null;
+    return { ...chat, queueId };
+  }, []);
+
+  const loadAgentsAndConnections = useCallback(
+    async (queueId) => {
+      if (!queueId) {
+        setAgents([]);
+        setConnections([]);
+        return;
+      }
+      try {
+        const [usersRes, connRes] = await Promise.all([
+          queueService.listQueueUsers(queueId).catch((err) => {
+            if (err?.status === 404) return null;
+            throw err;
+          }),
+          queueService.listQueueConnections(queueId).catch((err) => {
+            if (err?.status === 404) return [];
+            throw err;
+          })
+        ]);
+
+        const normalizedQueueAgents = (usersRes || []).map((u) => ({
+          id: u.user_id || u.userId || u.id,
+          name: u.name || u.email || u.username || u.user_id,
+          role: u.role || u.queueRole || u.queue_role || u.role_name,
+          queueIds: [queueId]
+        }));
+
+        if (normalizedQueueAgents.length === 0) {
+          const fallback = await queueService
+            .listAllUsers()
+            .then((all) =>
+              (all || []).filter((u) => ['ADMIN', 'SUPERVISOR', 'AGENTE', 'AGENT'].includes((u.role || '').toUpperCase()))
+            )
+            .then((all) =>
+              all.map((u) => ({
+                id: u.id,
+                name: u.fullName || u.name || u.email,
+                role: u.role,
+                queueIds: []
+              }))
+            )
+            .catch(() => []);
+          setAgents(fallback);
+        } else {
+          setAgents(normalizedQueueAgents);
+        }
+
+        setConnections(
+          (connRes || []).map((c) => ({
+            sessionName: c.whatsapp_session_name || c.sessionName || c.name
+          }))
+        );
+      } catch (err) {
+        // ignore load errors; modal will show empty lists
+        setAgents([]);
+        setConnections([]);
+      }
+    },
+    [queueService]
+  );
+
+  const loadChats = async (append = false) => {
+    if (!append) setChatCursor(null);
+    if (append) setLoadingMoreChats(true);
+    else setLoading(true);
+    try {
+      const data = await chatService.getChats({
+        status: activeTab,
+        search: searchTerm || undefined,
+        cursor: append ? chatCursor : null,
+        limit: 100
+      });
+      const items = (data?.items || data || []).map(normalizeChat);
+      const visible = (items || []).filter((c) => isChatVisible(c) && (matchesTab(c) || c.id === activeChatId));
+      setChatCursor(data?.nextCursor || null);
+      if (append) {
+        setChats((prev) => {
+          const map = new Map((prev || []).map((c) => [c.id, normalizeChat(c)]));
+          visible.forEach((c) => map.set(c.id, { ...map.get(c.id), ...c }));
+          return Array.from(map.values());
+        });
+      } else {
+        setChats(visible);
+      }
+      if (!activeChatId && visible?.length) {
+        setActiveChatId(visible[0].id);
+      }
+    } catch (err) {
+      handleError(err);
+    } finally {
+      if (append) setLoadingMoreChats(false);
+      else setLoading(false);
+    }
+  };
+
+  const setLoadingMoreFor = (chatId, value) => {
+    setMessagesLoadingMap((prev) => ({ ...prev, [chatId]: value }));
+  };
+
+  const loadMessagesWithCursor = async (chatId, { prepend = false, cursor = null, reset = false } = {}) => {
+    if (!chatId) return;
+    if (reset) {
+      messageCursorRef.current[chatId] = null;
+      hasMoreRef.current[chatId] = false;
+      setHasMoreMap((prev) => ({ ...prev, [chatId]: false }));
+    }
+    if (prepend) setLoadingMoreFor(chatId, true);
+    else setLoadingMsgs(true);
+    try {
+      const nextCursor = cursor !== null ? cursor : reset ? null : messageCursorRef.current[chatId] || null;
+      const data = await chatService.getMessages(chatId, { cursor: nextCursor, limit: 30 });
+      const list = Array.isArray(data?.messages) ? data.messages : Array.isArray(data) ? data : [];
+      const deduped = dedupeMessages(list);
+      messageCursorRef.current[chatId] = data?.nextCursor || null;
+      hasMoreRef.current[chatId] = Boolean(data?.nextCursor);
+      setHasMoreMap((prev) => ({ ...prev, [chatId]: Boolean(data?.nextCursor) }));
+      setMessages((prev) => {
+        const existing = reset ? [] : prev[chatId] || [];
+        const merged = prepend ? dedupeMessages([...deduped, ...existing]) : dedupeMessages([...existing, ...deduped]);
+        return { ...prev, [chatId]: merged };
+      });
+      if (!prepend) {
+        setScrollKey((k) => k + 1);
+      }
+    } catch (err) {
+      handleError(err);
+    } finally {
+      if (prepend) setLoadingMoreFor(chatId, false);
+      else setLoadingMsgs(false);
+    }
+  };
+
+  const loadMessages = async (chatId) => loadMessagesWithCursor(chatId, { prepend: false, cursor: null, reset: true });
+
+  useEffect(() => {
+    loadChats();
+    const loadSummary = async () => {
+      try {
+        const data = await chatService.getChatSummary();
+        setSummary({
+          OPEN: data?.OPEN || 0,
+          UNASSIGNED: data?.UNASSIGNED || 0,
+          CLOSED: data?.CLOSED || 0
+        });
+      } catch (_err) {
+        // ignore summary errors
+      }
+    };
+    loadSummary();
+  }, [activeTab, searchTerm]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeChatId) {
+      loadMessages(activeChatId);
+      setUnread((prev) => ({ ...prev, [activeChatId]: 0 }));
+    }
+  }, [activeChatId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const chatIdParam = searchParams.get('chatId');
+    if (chatIdParam) {
+      setActiveChatId(chatIdParam);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (activeChat && !matchesTab(activeChat)) {
+      const status = activeChat.status;
+      const target = status === 'UNASSIGNED' ? 'UNASSIGNED' : status === 'CLOSED' ? 'CLOSED' : 'OPEN';
+      if (target !== activeTab) setActiveTab(target);
+    }
+  }, [activeChat, activeTab, matchesTab]);
+
+  const handleLoadMoreMessages = useCallback(() => {
+    const cid = activeChatIdRef.current;
+    if (!cid) return;
+    const cursor = messageCursorRef.current[cid];
+    if (!cursor) return;
+    loadMessagesWithCursor(cid, { prepend: true, cursor });
+  }, [loadMessagesWithCursor]);
+
+  useEffect(() => {
+    if (activeChat?.queueId) {
+      loadAgentsAndConnections(activeChat.queueId);
+    } else {
+      setAgents([]);
+      setConnections([]);
+    }
+  }, [activeChat?.queueId, loadAgentsAndConnections]);
+
+  const handleCloseChat = async () => {
+    if (!activeChatId) return;
+    try {
+      const prevStatus = activeChat?.status || null;
+      await chatService.closeChat(activeChatId);
+      adjustSummary(prevStatus, 'CLOSED');
+      setChats((prev) =>
+        prev
+          .map((c) => (c.id === activeChatId ? { ...c, status: 'CLOSED' } : c))
+          .filter((c) => matchesTab(c) || c.id === activeChatId)
+      );
+      setActiveTab('CLOSED');
+      setSnackbar({ severity: 'success', message: 'Chat cerrado' });
+      await loadChats();
+      await loadMessages(activeChatId);
+    } catch (err) {
+      handleError(err);
+    }
+  };
+
+  const handleReassignSuccess = useCallback(
+    (updatedChat) => {
+      if (!updatedChat) return;
+      const normalized = normalizeChat(updatedChat);
+      setChats((prev) => {
+        const map = new Map(prev.map((c) => [c.id, c]));
+        map.set(normalized.id, { ...map.get(normalized.id), ...normalized });
+        return Array.from(map.values());
+      });
+      setActiveTab('OPEN');
+      setActiveChatId(normalized.id);
+      setSnackbar({ severity: 'success', message: 'Chat reasignado' });
+    },
+    [normalizeChat]
+  );
+
+  const handleSend = async (payload) => {
+    if (!activeChatId) return;
+    try {
+      let msg;
+      if (payload.file) {
+        msg = await chatService.sendMedia(activeChatId, payload.file, payload.text || '', {
+          onProgress: payload.onProgress
+        });
+      } else {
+        msg = await chatService.sendMessage(activeChatId, { text: payload.text || '' });
+      }
+      setMessages((prev) => {
+        const list = prev[activeChatId] || [];
+        return { ...prev, [activeChatId]: dedupeMessages([...list, msg]) };
+      });
+      setUnread((prev) => ({ ...prev, [activeChatId]: 0 }));
+      setSnackbar({ severity: 'success', message: 'Mensaje enviado' });
+      return msg;
+    } catch (err) {
+      handleError(err);
+      throw err;
+    }
+  };
+
+  const handleAssignToMe = async () => {
+    if (!activeChatId) return;
+    try {
+      const prevStatus = activeChat?.status || null;
+      await chatService.assignChat(activeChatId);
+      adjustSummary(prevStatus, 'OPEN');
+      setActiveTab('OPEN');
+      setChats((prev) =>
+        prev
+          .map((c) => (c.id === activeChatId ? { ...c, status: 'OPEN', assignedUserId: user?.id, assignedAgentId: user?.id } : c))
+          .filter((c) => matchesTab(c) || c.id === activeChatId)
+      );
+      await loadChats();
+      await loadMessages(activeChatId);
+      setSnackbar({ severity: 'success', message: 'Chat asignado' });
+    } catch (err) {
+      handleError(err);
+    }
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    const socket = getEventsSocket(token);
+
+    const shouldIgnore = (evt) => {
+      const jid = evt?.chat?.remoteJid || evt?.message?.remoteJid || '';
+      return typeof jid === 'string' && jid.endsWith('@g.us');
+    };
+
+    const handleStatusUpdate = ({ chatId, whatsappMessageId, messageId, status, timestamp }) => {
+      if (!chatId || !(whatsappMessageId || messageId)) return;
+      setMessages((prev) => {
+        const list = prev[chatId] || [];
+        const next = list.map((m) =>
+          m.whatsappMessageId === whatsappMessageId || m.id === messageId
+            ? { ...m, status: status || m.status, timestamp: timestamp || m.timestamp }
+            : m
+        );
+        return { ...prev, [chatId]: next };
+      });
+    };
+
+    const isChatVisibleCurrent = (chat) => {
+      if (!chat) return false;
+      const currentRole = userRef.current?.role;
+      const currentUserId = userRef.current?.id;
+      if (currentRole === 'ADMIN' || currentRole === 'SUPERVISOR') return true;
+      if (currentRole === 'AGENTE') {
+        return !chat.assignedUserId || chat.assignedUserId === currentUserId;
+      }
+      return false;
+    };
+
+    const matchesTabCurrent = (chat) => {
+      if (!chat) return false;
+      const tab = activeTabRef.current;
+      if (tab === 'UNASSIGNED') return chat.status === 'UNASSIGNED';
+      if (tab === 'CLOSED') return chat.status === 'CLOSED';
+      return chat.status === 'OPEN';
+    };
+
+    const handleIncomingMessage = ({ chatId, message, chat }) => {
+      if (!chatId || !message) return;
+      if (shouldIgnore({ chat, message })) return;
+
+      const key = getMessageKey(message);
+      if (key) {
+        const cache = messageKeysRef.current[chatId] || new Set();
+        if (cache.has(key)) return;
+        cache.add(key);
+        if (cache.size > 500) {
+          const toDrop = Array.from(cache).slice(0, cache.size - 500);
+          toDrop.forEach((k) => cache.delete(k));
+        }
+        messageKeysRef.current[chatId] = cache;
+      }
+
+      let allowed = true;
+      const currentActiveChatId = activeChatIdRef.current;
+
+      let statusChange = null;
+
+      if (chat) {
+        const visible = isChatVisibleCurrent(chat) && matchesTabCurrent(chat);
+        setChats((prev) => {
+          if (!visible) return prev.filter((c) => c.id !== chat.id);
+          const exists = prev.find((c) => c.id === chat.id);
+          statusChange = { prev: exists?.status, next: chat.status };
+          if (exists) return prev.map((c) => (c.id === chat.id ? chat : c));
+          return [chat, ...prev];
+        });
+        if (!visible) {
+          allowed = false;
+          if (currentActiveChatId === chat.id) setActiveChatId(null);
+        }
+      } else {
+        setChats((prev) => {
+          const exists = prev.find((c) => c.id === chatId);
+          if (!exists) {
+            allowed = false;
+            return prev;
+          }
+          const visible = isChatVisibleCurrent(exists);
+          allowed = visible;
+          return visible ? prev : prev.filter((c) => c.id !== chatId);
+        });
+      }
+      if (!allowed) return;
+
+      setMessages((prev) => {
+        const list = prev[chatId] || [];
+        const next = [...list, message].sort(
+          (a, b) => new Date(a.createdAt || a.timestamp) - new Date(b.createdAt || b.timestamp)
+        );
+        return { ...prev, [chatId]: dedupeMessages(next) };
+      });
+      if (statusChange && statusChange.prev !== statusChange.next) {
+        adjustSummary(statusChange.prev, statusChange.next);
+      } else if (!statusChange && chat?.status) {
+        // new chat not in state previously
+        adjustSummary(null, chat.status);
+      }
+      if (currentActiveChatId !== chatId) {
+        setUnread((prev) => ({ ...prev, [chatId]: (prev[chatId] || 0) + 1 }));
+      } else {
+        setScrollKey((k) => k + 1);
+      }
+    };
+
+    socket.on('message:new', handleIncomingMessage);
+    socket.on('message:media', handleIncomingMessage);
+    socket.on('message:update', handleStatusUpdate);
+
+    socket.on('chat:new', (chat) => {
+      if (chat?.status) adjustSummary(null, chat.status);
+      if (!isChatVisibleCurrent(chat) || !matchesTabCurrent(chat)) return;
+      setChats((prev) => {
+        if (prev.find((c) => c.id === chat.id)) return prev;
+        return [chat, ...prev];
+      });
+    });
+
+    socket.on('chat:update', (chat) => {
+      if (chat.hidden) {
+        setChats((prev) => prev.filter((c) => c.id !== chat.id));
+        if (activeChatIdRef.current === chat.id) setActiveChatId(null);
+        return;
+      }
+      const visible = isChatVisibleCurrent(chat) && matchesTabCurrent(chat);
+      setChats((prev) => {
+        const exists = prev.find((c) => c.id === chat.id);
+        if (exists?.status && exists.status !== chat.status) {
+          adjustSummary(exists.status, chat.status);
+        }
+        if (!visible) return prev.filter((c) => c.id !== chat.id);
+        if (exists) return prev.map((c) => (c.id === chat.id ? chat : c));
+        adjustSummary(null, chat.status);
+        return [chat, ...prev];
+      });
+      if (!visible && activeChatIdRef.current === chat.id) {
+        setActiveChatId(null);
+      }
+      // Si el chat activo cambia de estado, navega a la pestaña correcta
+      if (activeChatIdRef.current === chat.id && chat?.status) {
+        const targetTab = chat.status === 'UNASSIGNED' ? 'UNASSIGNED' : chat.status === 'CLOSED' ? 'CLOSED' : 'OPEN';
+        if (targetTab !== activeTabRef.current) {
+          setActiveTab(targetTab);
+        }
+      }
+    });
+
+    socketRef.current = socket;
+    return () => {
+      socket.off('message:new', handleIncomingMessage);
+      socket.off('message:media', handleIncomingMessage);
+      socket.off('message:update', handleStatusUpdate);
+      socket.off('chat:new');
+      socket.off('chat:update');
+    };
+  }, [token]);
+
+  return (
+    <PageLayout title={null} subtitle={null}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems="center" sx={{ mb: 1, px: 1, flexWrap: 'wrap' }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_e, val) => {
+            setActiveChatId(null);
+            setActiveTab(val);
+          }}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={(theme) => ({
+            borderBottom: `1px solid ${theme.palette.divider}`,
+            backgroundColor: theme.semanticColors.surfaceSecondary,
+            px: 1,
+            borderRadius: 2,
+            maxWidth: '100%'
+          })}
+          TabIndicatorProps={{ style: { display: 'none' } }}
+        >
+          {role !== 'AGENTE' && (
+            <Tab
+              value="UNASSIGNED"
+              label={
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Typography variant="body2" fontWeight={700}>
+                    No asignados
+                  </Typography>
+                  <Chip size="small" label={summary.UNASSIGNED || 0} color="info" variant={activeTab === 'UNASSIGNED' ? 'filled' : 'outlined'} />
+                </Stack>
+              }
+              sx={(theme) => ({
+                mx: 0.5,
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 700,
+                color: theme.palette.text.primary,
+                backgroundColor: activeTab === 'UNASSIGNED' ? theme.semanticColors.surfaceHover : 'transparent',
+                '& .MuiChip-root': {
+                  bgcolor: activeTab === 'UNASSIGNED' ? theme.palette.primary.main : theme.semanticColors.surface
+                },
+                ...(activeTab === 'UNASSIGNED'
+                  ? { color: theme.palette.primary.dark }
+                  : { '&:hover': { backgroundColor: theme.semanticColors.surfaceHover } })
+              })}
+            />
+          )}
+          <Tab
+            value="OPEN"
+            label={
+              <Stack direction="row" spacing={0.75} alignItems="center">
+                <Typography variant="body2" fontWeight={700}>
+                  Asignados
+                </Typography>
+                <Chip size="small" label={summary.OPEN || 0} color="primary" variant={activeTab === 'OPEN' ? 'filled' : 'outlined'} />
+              </Stack>
+            }
+            sx={(theme) => ({
+              mx: 0.5,
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 700,
+              color: theme.palette.text.primary,
+              backgroundColor: activeTab === 'OPEN' ? theme.semanticColors.surfaceHover : 'transparent',
+              ...(activeTab === 'OPEN'
+                ? { color: theme.palette.primary.dark }
+                : { '&:hover': { backgroundColor: theme.semanticColors.surfaceHover } })
+            })}
+          />
+          {role !== 'AGENTE' && (
+            <Tab
+              value="CLOSED"
+              label={
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Typography variant="body2" fontWeight={700}>
+                    Cerrados
+                  </Typography>
+                  <Chip size="small" label={summary.CLOSED || 0} color={activeTab === 'CLOSED' ? 'primary' : 'default'} variant={activeTab === 'CLOSED' ? 'filled' : 'outlined'} />
+                </Stack>
+              }
+              sx={(theme) => ({
+                mx: 0.5,
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 700,
+                color: theme.palette.text.primary,
+                backgroundColor: activeTab === 'CLOSED' ? theme.semanticColors.surfaceHover : 'transparent',
+                ...(activeTab === 'CLOSED'
+                  ? { color: theme.palette.primary.dark }
+                  : { '&:hover': { backgroundColor: theme.semanticColors.surfaceHover } })
+              })}
+            />
+          )}
+        </Tabs>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems="center" sx={{ width: '100%', justifyContent: 'flex-end' }}>
+          <TextField
+            size="small"
+            placeholder="Buscar por número o texto"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              )
+            }}
+            sx={{ minWidth: { xs: '100%', md: 260 } }}
+          />
+          <Button
+            variant="contained"
+            startIcon={<AddCircleOutlineIcon />}
+            onClick={openNewChatModal}
+            disabled={newChatLoading}
+          >
+            Nuevo Chat
+          </Button>
+        </Stack>
+      </Stack>
+      <Box
+        sx={(theme) => ({
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: '320px 1fr' },
+          gap: 0,
+          height: '75vh',
+          minHeight: 0,
+          border: `1px solid ${theme.palette.divider}`,
+          borderRadius: 3,
+          overflow: 'hidden',
+          backgroundColor: theme.semanticColors.surfaceSecondary
+        })}
+      >
+        {loading ? (
+          <Box sx={{ display: 'grid', placeItems: 'center' }}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <ChatInbox
+            chats={chats}
+            activeId={activeChatId}
+            unreadCounts={unread}
+            onSelect={(c) => setActiveChatId(c.id)}
+            onRefresh={loadChats}
+            hasMore={Boolean(chatCursor)}
+            loadingMore={loadingMoreChats}
+            onLoadMore={() => loadChats(true)}
+          />
+        )}
+        <ChatWindow
+          chat={activeChat}
+          userId={user?.id}
+          messages={messages[activeChatId] || []}
+          onSend={handleSend}
+          sending={false}
+          loadingMessages={loadingMsgs}
+          role={role}
+          onAssignToMe={
+            role === 'ADMIN' || role === 'SUPERVISOR'
+              ? handleAssignToMe
+              : activeChat && !activeChat.assignedUserId
+              ? handleAssignToMe
+              : undefined
+          }
+          onReassign={role === 'ADMIN' || role === 'SUPERVISOR' ? () => setShowReassign(true) : undefined}
+          onCloseChat={activeChat ? handleCloseChat : undefined}
+          quickReplyApi={quickReplyApi}
+          chatPanelProps={{
+            hasMore: hasMoreMap[activeChatId] || false,
+            loadingMore: messagesLoadingMap[activeChatId] || false,
+            onLoadMore: handleLoadMoreMessages,
+            autoScrollKey: scrollKey
+          }}
+        />
+      </Box>
+      <Dialog open={newChatOpen} onClose={() => (!newChatLoading ? setNewChatOpen(false) : null)} fullWidth maxWidth="sm">
+        <DialogTitle>Nuevo Chat</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <FormControl fullWidth disabled={connectionsLoading} size="small">
+              <InputLabel id="new-chat-connection-label" shrink>
+                Conexión WhatsApp
+              </InputLabel>
+              <Select
+                labelId="new-chat-connection-label"
+                label="Conexión WhatsApp"
+                value={newChatForm.sessionName}
+                onChange={(e) =>
+                  setNewChatForm((prev) => ({
+                    ...prev,
+                    sessionName: e.target.value,
+                    queueId: ''
+                  }))
+                }
+                displayEmpty
+                renderValue={(val) =>
+                  val ? (
+                    val
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Selecciona una conexión asignada
+                    </Typography>
+                  )
+                }
+              >
+                {availableConnections.length === 0 && (
+                  <MenuItem value="" disabled>
+                    Sin conexiones asignadas a tus colas
+                  </MenuItem>
+                )}
+                {availableConnections.map((c) => (
+                  <MenuItem key={c.name} value={c.name}>
+                    {c.name} {c.status ? `(${c.status})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText sx={{ minHeight: 20, lineHeight: 1.2 }}>
+                {connectionsLoading
+                  ? 'Cargando conexiones asignadas...'
+                  : availableConnections.length
+                    ? 'Solo conexiones asignadas por colas'
+                    : 'Solicita asignación de cola para crear chats'}
+              </FormHelperText>
+            </FormControl>
+            <FormControl
+              fullWidth
+              disabled={connectionsLoading || !newChatForm.sessionName || connectionQueues.length === 0}
+              size="small"
+            >
+              <InputLabel id="new-chat-queue-label" shrink>
+                Cola
+              </InputLabel>
+              <Select
+                labelId="new-chat-queue-label"
+                label="Cola"
+                value={newChatForm.queueId}
+                onChange={(e) => setNewChatForm((prev) => ({ ...prev, queueId: e.target.value }))}
+                displayEmpty
+                renderValue={(val) =>
+                  val ? (
+                    connectionQueues.find((q) => q.id === val)?.name || 'Cola seleccionada'
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Selecciona una cola
+                    </Typography>
+                  )
+                }
+              >
+                {connectionQueues.length === 0 && (
+                  <MenuItem value="" disabled>
+                    Sin colas disponibles para esta conexión
+                  </MenuItem>
+                )}
+                {connectionQueues.map((q) => (
+                  <MenuItem key={q.id} value={q.id}>
+                    {q.name}
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText sx={{ minHeight: 20, lineHeight: 1.2 }}>
+                {connectionQueues.length === 0
+                  ? 'Asigna la conexión a alguna cola antes de crear chat'
+                  : 'Solo se listan las colas asociadas a esta conexión'}
+              </FormHelperText>
+            </FormControl>
+            <TextField
+              size="small"
+              label="Contacto (número)"
+              placeholder="5512345678"
+              value={newChatForm.contact}
+              onChange={(e) => setNewChatForm((prev) => ({ ...prev, contact: e.target.value }))}
+              helperText="Se normaliza y se asocia al chat"
+            />
+            {hasOpenChatForContact(newChatForm.sessionName, newChatForm.contact) && (
+              <Alert severity="warning">Ya existe un chat activo para este contacto en esta conexión</Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNewChatOpen(false)} disabled={newChatLoading}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateChat}
+            disabled={
+              newChatLoading ||
+              !newChatForm.sessionName.trim() ||
+              !newChatForm.contact.trim() ||
+              !newChatForm.queueId
+            }
+          >
+            {newChatLoading ? 'Procesando...' : 'Crear'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Snackbar open={Boolean(snackbar)} autoHideDuration={4000} onClose={() => setSnackbar(null)}>
+        {snackbar && (
+          <Alert severity={snackbar.severity} onClose={() => setSnackbar(null)}>
+            {snackbar.message}
+          </Alert>
+        )}
+      </Snackbar>
+      <ReassignModal
+        open={showReassign}
+        onClose={() => setShowReassign(false)}
+        chat={activeChat}
+        agents={agents}
+        connections={connections}
+        onConfirm={async ({ toAgentId, sessionName, reason }) => {
+          if (!activeChatId) return;
+          try {
+            const updated = await chatService.reassignChat(activeChatId, { toAgentId, sessionName, reason });
+            setShowReassign(false);
+            handleReassignSuccess(updated);
+            await loadMessages(updated.id);
+          } catch (err) {
+            handleError(err);
+          }
+        }}
+        loading={loading || loadingMsgs}
+      />
+    </PageLayout>
+  );
+};
+
+export default ChatView;
