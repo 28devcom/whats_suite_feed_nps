@@ -41,7 +41,6 @@ storage/media/
 
 # --- Bases de datos / dumps ---
 dumps/
-*.sql
 *.dump
 *.bak
 
