@@ -96,7 +96,7 @@ Use rutas simples y con permisos del usuario actual para evitar problemas al cre
 ## 10. Clonación del repositorio
 `git` permite traer el código del proyecto:
 ```bash
-git clone <URL_DEL_REPOSITORIO> WhatsSuite
+git clone https://github.com/ismaelbojorquez/WhatsSuite.git WhatsSuite
 cd WhatsSuite
 ```
 Verifique que existan archivos clave:
