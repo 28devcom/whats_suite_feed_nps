@@ -7,7 +7,6 @@ import {
   reassignChatWithConnectionDb,
   hasOpenChatConflict
 } from '../infra/db/chatRepository.js';
-import { listConnectedAgents } from './userConnectionService.js';
 import { recordChatAssignmentAudit } from '../infra/db/chatAssignmentAuditRepository.js';
 import logger from '../infra/logging/logger.js';
 import pool from '../infra/db/postgres.js';
@@ -17,27 +16,26 @@ import { emitChatReassignedEvent } from '../infra/realtime/chatEvents.js';
 
 const LOG_TAG = 'CHAT_REASSIGN';
 
-const assertSupervisor = (user) => {
-  if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPERVISOR')) {
-    logger.warn({ userId: user?.id, role: user?.role, tag: LOG_TAG }, 'Reassign blocked: insufficient role');
-    throw new AppError('No autorizado a reasignar', 403);
-  }
-};
-
 const assertQueueCompatibility = async (agentId, queueId) => {
   if (!queueId) return true; // Chats sin cola: permitido.
   return isUserInQueue(agentId, queueId);
 };
-
-const isAgentConnected = (connectedAgents, agentId) => connectedAgents.some((a) => a.userId === agentId);
 
 const assertSessionExists = async (sessionName) => {
   const { rows } = await pool.query('SELECT 1 FROM whatsapp_sessions WHERE session_name = $1 LIMIT 1', [sessionName]);
   if (!rows[0]) throw new AppError('Conexión/WhatsApp session no existe', 404);
 };
 
+const isSupervisor = (role) => role === 'ADMIN' || role === 'SUPERVISOR';
+
 export const reassignChat = async ({ chatId, toAgentId, reason = null, user, sessionName = null }) => {
-  assertSupervisor(user);
+  if (!user) throw new AppError('No autorizado a reasignar', 403);
+  const supervisorRole = isSupervisor(user.role);
+  const isAgent = user.role === 'AGENTE';
+  if (!supervisorRole && !isAgent) {
+    logger.warn({ userId: user?.id, role: user?.role, tag: LOG_TAG }, 'Reassign blocked: insufficient role');
+    throw new AppError('No autorizado a reasignar', 403);
+  }
   if (!chatId || !toAgentId) throw new AppError('Parámetros incompletos para reasignar', 400);
 
   const chat = await getChatById(chatId);
@@ -47,7 +45,23 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
     throw new AppError('Chat ya asignado a ese agente', 409);
   }
 
-  const targetSession = sessionName || chat.whatsappSessionName;
+  if (isAgent) {
+    if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
+      throw new AppError('Solo puedes transferir chats asignados a ti', 403);
+    }
+    if (!chat.queueId) {
+      throw new AppError('Solo puedes transferir chats con cola asignada', 403);
+    }
+    const actorInQueue = await assertQueueCompatibility(user.id, chat.queueId);
+    if (!actorInQueue) {
+      throw new AppError('No puedes transferir chats fuera de tu cola', 403);
+    }
+    if (sessionName && sessionName !== chat.whatsappSessionName) {
+      throw new AppError('No puedes cambiar la conexión al transferir el chat', 403);
+    }
+  }
+
+  const targetSession = isAgent ? chat.whatsappSessionName : sessionName || chat.whatsappSessionName;
   await assertSessionExists(targetSession);
 
   const allowedQueue = await assertQueueCompatibility(toAgentId, chat.queueId);
@@ -111,7 +125,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
     newAgentId: toAgentId,
     action: 'REASSIGN',
     executedByUserId: user.id,
-    reason: reason || 'manual_reassign',
+    reason: reason || (isAgent ? 'agent_transfer' : 'manual_reassign'),
     validatedQueue: !!allowedQueue,
     fromConnectionId: chat.whatsappSessionName,
     toConnectionId: targetSession

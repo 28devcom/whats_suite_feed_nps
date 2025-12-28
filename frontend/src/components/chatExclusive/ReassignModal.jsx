@@ -23,7 +23,8 @@ const ReassignModal = ({
   agents = [],
   connections = [],
   onConfirm,
-  loading = false
+  loading = false,
+  role
 }) => {
   const [agentId, setAgentId] = useState('');
   const [sessionName, setSessionName] = useState('');
@@ -32,6 +33,8 @@ const ReassignModal = ({
 
   const queueId = chat?.queueId ?? null;
   const disabled = loading || !chat;
+  const canChangeConnection = role === 'ADMIN' || role === 'SUPERVISOR';
+  const currentAssigneeId = chat?.assignedAgentId || chat?.assignedUserId || null;
 
   /* ===================== RESET ===================== */
   useEffect(() => {
@@ -51,6 +54,11 @@ const ReassignModal = ({
     return byQueue;
   }, [agents, queueId]);
 
+  const availableAgents = useMemo(
+    () => filteredAgents.filter((a) => a.id !== currentAssigneeId),
+    [filteredAgents, currentAssigneeId]
+  );
+
   /* ===================== VALIDATION ===================== */
   const canConfirm =
     !!agentId &&
@@ -69,11 +77,14 @@ const ReassignModal = ({
     }
 
     setError('');
-    onConfirm?.({
+    const payload = {
       toAgentId: agentId,
-      sessionName: sessionName || undefined,
       reason: reason.trim()
-    });
+    };
+    if (canChangeConnection && sessionName) {
+      payload.sessionName = sessionName;
+    }
+    onConfirm?.(payload);
   };
 
   /* ===================== RENDER ===================== */
@@ -89,10 +100,8 @@ const ReassignModal = ({
       <DialogContent dividers>
         <Stack spacing={2.2}>
           <Typography variant="body2" color="text.secondary">
-            Esta acción es <strong>auditable</strong> y solo está permitida para
-            <strong> ADMIN y SUPERVISOR</strong>.
-            <br />
-            El agente destino debe pertenecer a la misma cola del chat.
+            Transfiere el chat a otro agente de la <strong>misma cola</strong>.{' '}
+            {!canChangeConnection && 'La conexión se mantiene sin cambios.'}
           </Typography>
 
           {error && <Alert severity="warning">{error}</Alert>}
@@ -112,13 +121,13 @@ const ReassignModal = ({
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
             >
-              {filteredAgents.length === 0 && (
+              {availableAgents.length === 0 && (
                 <MenuItem disabled>
                   No hay agentes disponibles en esta cola
                 </MenuItem>
               )}
 
-              {filteredAgents.map(a => (
+              {availableAgents.map((a) => (
                 <MenuItem key={a.id} value={a.id}>
                   {a.name || a.email || a.username || a.id}
                 </MenuItem>
@@ -127,30 +136,32 @@ const ReassignModal = ({
           </FormControl>
 
           {/* ===================== CONNECTION ===================== */}
-          <FormControl fullWidth disabled={disabled}>
-            <InputLabel id="reassign-connection">
-              Conexión (opcional)
-            </InputLabel>
-            <Select
-              labelId="reassign-connection"
-              label="Conexión (opcional)"
-              value={sessionName}
-              onChange={(e) => setSessionName(e.target.value)}
-            >
-              <MenuItem value="">
-                Mantener conexión actual
-              </MenuItem>
+          {canChangeConnection && (
+            <FormControl fullWidth disabled={disabled}>
+              <InputLabel id="reassign-connection">
+                Conexión (opcional)
+              </InputLabel>
+              <Select
+                labelId="reassign-connection"
+                label="Conexión (opcional)"
+                value={sessionName}
+                onChange={(e) => setSessionName(e.target.value)}
+              >
+                <MenuItem value="">
+                  Mantener conexión actual
+                </MenuItem>
 
-              {connections.map(c => {
-                const name = c.sessionName || c.name;
-                return (
-                  <MenuItem key={name} value={name}>
-                    {name}
-                  </MenuItem>
-                );
-              })}
-            </Select>
-          </FormControl>
+                {connections.map((c) => {
+                  const name = c.sessionName || c.name;
+                  return (
+                    <MenuItem key={name} value={name}>
+                      {name}
+                    </MenuItem>
+                  );
+                })}
+              </Select>
+            </FormControl>
+          )}
 
           {/* ===================== REASON ===================== */}
           <TextField

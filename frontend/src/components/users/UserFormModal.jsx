@@ -67,29 +67,35 @@ const UserFormModal = ({
   }, [user, open]);
 
   /* ===================== VALIDATION ===================== */
-  const validate = useCallback((values) => {
-    const e = {};
+  const validate = useCallback(
+    (values) => {
+      const e = {};
+      const passwordValue = (values.password || '').trim();
 
-    if (!values.name.trim()) {
-      e.name = 'El nombre es obligatorio';
-    }
+      if (!values.name.trim()) {
+        e.name = 'El nombre es obligatorio';
+      }
 
-    if (!values.email.trim()) {
-      e.email = 'El email es obligatorio';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
-      e.email = 'Email inválido';
-    }
+      if (!values.email.trim()) {
+        e.email = 'El email es obligatorio';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) {
+        e.email = 'Email inválido';
+      }
 
-    if (!isEdit) {
-      if (!values.password) {
-        e.password = 'La contraseña es obligatoria';
-      } else if (values.password.length < 6) {
+      if (!isEdit) {
+        if (!passwordValue) {
+          e.password = 'La contraseña es obligatoria';
+        } else if (passwordValue.length < 6) {
+          e.password = 'Mínimo 6 caracteres';
+        }
+      } else if (passwordValue && passwordValue.length < 6) {
         e.password = 'Mínimo 6 caracteres';
       }
-    }
 
-    return e;
-  }, [isEdit]);
+      return e;
+    },
+    [isEdit]
+  );
 
   useEffect(() => {
     setErrors(validate(form));
@@ -125,8 +131,9 @@ const UserFormModal = ({
       status: form.status
     };
 
-    if (!isEdit || form.password) {
-      payload.password = form.password;
+    const passwordValue = form.password.trim();
+    if (!isEdit || passwordValue) {
+      payload.password = passwordValue;
     }
 
     onSubmit?.(payload);
@@ -146,11 +153,11 @@ const UserFormModal = ({
 
       <DialogContent dividers>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          {!isEdit && (
-            <Alert severity="info">
-              La contraseña inicial podrá ser cambiada por el usuario.
-            </Alert>
-          )}
+          <Alert severity="info">
+            {isEdit
+              ? 'Ingresa una nueva contraseña solo si quieres reemplazar la actual. Déjala en blanco para mantenerla.'
+              : 'La contraseña inicial podrá ser cambiada por el usuario.'}
+          </Alert>
 
           <TextField
             label="Nombre completo"
@@ -175,19 +182,23 @@ const UserFormModal = ({
             helperText={touched.email && errors.email}
           />
 
-          {!isEdit && (
-            <TextField
-              label="Contraseña"
-              type="password"
-              value={form.password}
-              onChange={updateField('password')}
-              onBlur={() => setTouched(p => ({ ...p, password: true }))}
-              fullWidth
-              required
-              error={touched.password && !!errors.password}
-              helperText={errors.password || 'Mínimo 6 caracteres'}
-            />
-          )}
+          <TextField
+            label={isEdit ? 'Nueva contraseña (opcional)' : 'Contraseña'}
+            type="password"
+            value={form.password}
+            onChange={updateField('password')}
+            onBlur={() => setTouched((p) => ({ ...p, password: true }))}
+            fullWidth
+            required={!isEdit}
+            error={touched.password && !!errors.password}
+            helperText={
+              touched.password && errors.password
+                ? errors.password
+                : isEdit
+                ? 'Déjala en blanco para mantener la actual'
+                : 'Mínimo 6 caracteres'
+            }
+          />
 
           <FormControl fullWidth>
             <InputLabel id="role-label">Rol</InputLabel>

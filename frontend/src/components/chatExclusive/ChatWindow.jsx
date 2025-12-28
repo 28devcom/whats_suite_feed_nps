@@ -493,9 +493,9 @@ const ChatWindow = ({
               </Button>
             )}
 
-          {(role === 'ADMIN' || role === 'SUPERVISOR') && onReassign && (
+          {onReassign && chat.status !== 'CLOSED' && (
             <Button size="small" variant="contained" onClick={onReassign}>
-              Reasignar
+              {role === 'AGENTE' ? 'Transferir' : 'Reasignar'}
             </Button>
           )}
 

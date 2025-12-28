@@ -77,7 +77,7 @@ export const createUser = async ({ name, email, username, password, role = USER_
   }
 };
 
-export const updateUser = async (id, { name, email, username, role, status }, { actorId = null, ip = null } = {}) => {
+export const updateUser = async (id, { name, email, username, role, status, password }, { actorId = null, ip = null } = {}) => {
   try {
     const existing = await findUserByIdDb(id);
     if (!existing) throw new AppError('Usuario no encontrado', 404);
@@ -93,10 +93,13 @@ export const updateUser = async (id, { name, email, username, role, status }, { 
       }
     }
 
-    const user = await updateUserDb(id, { name, email, username, role, status });
+    const passwordPlain = typeof password === 'string' && password.trim().length > 0 ? password : null;
+    const user = await updateUserDb(id, { name, email, username, role, status, passwordPlain });
     if (!user) throw new AppError('Usuario no encontrado', 404);
 
     if (status === USER_STATUS.INACTIVE) {
+      await forceLogout({ targetUserId: id, performedBy: actorId, ip, userAgent: null }).catch(() => {});
+    } else if (passwordPlain) {
       await forceLogout({ targetUserId: id, performedBy: actorId, ip, userAgent: null }).catch(() => {});
     }
 
@@ -105,7 +108,7 @@ export const updateUser = async (id, { name, email, username, role, status }, { 
       action: 'user_updated',
       targetId: id,
       ip,
-      metadata: { name, email, username, role, status }
+      metadata: { name, email, username, role, status, passwordChanged: Boolean(passwordPlain) }
     });
     return sanitizeUser(user);
   } catch (err) {

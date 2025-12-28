@@ -90,7 +90,7 @@ export const findUserById = async (id) => {
 
 // Note: do not expose password_hash; retrieval for auth should be handled in dedicated auth repository.
 
-export const updateUser = async (id, { name, email, username, role, status, deletedAt }) => {
+export const updateUser = async (id, { name, email, username, role, status, deletedAt, passwordPlain }) => {
   const normalizedRole = role ? normalizeRole(role) : null;
   const normalizedEmail = email ? email.toLowerCase() : null;
   const normalizedUsername = username ? username.toLowerCase() : null;
@@ -98,6 +98,7 @@ export const updateUser = async (id, { name, email, username, role, status, dele
   const fields = [];
   const values = [];
   let idx = 1;
+  const passwordHash = passwordPlain ? await hashPassword(passwordPlain) : null;
 
   if (name) {
     fields.push(`name = $${idx}, full_name = $${idx}`);
@@ -122,6 +123,11 @@ export const updateUser = async (id, { name, email, username, role, status, dele
   if (normalizedRole) {
     fields.push(`role_id = (SELECT id FROM roles WHERE name = $${idx} LIMIT 1)`);
     values.push(normalizedRole);
+    idx += 1;
+  }
+  if (passwordHash) {
+    fields.push(`password_hash = $${idx}`);
+    values.push(passwordHash);
     idx += 1;
   }
   if (deletedAt) {

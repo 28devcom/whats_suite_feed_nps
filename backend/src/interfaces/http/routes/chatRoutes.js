@@ -58,7 +58,7 @@ router.post('/:chatId/unassign', authorize(ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.
 // Close / Reopen
 router.post('/:chatId/close', authorize(ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.AGENTE), closeChatController);
 router.post('/:chatId/reopen', authorize(ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.AGENTE), reopenChatController);
-router.post('/:chatId/reassign', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), reassignChatController);
+router.post('/:chatId/reassign', authorize(ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.AGENTE), reassignChatController);
 
 // Send outbound message (agent restrictions enforced inside service)
 router.post('/:chatId/messages', authorize(ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.AGENTE), sendMessageController);

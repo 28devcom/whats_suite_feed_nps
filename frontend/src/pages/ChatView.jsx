@@ -114,6 +114,14 @@ const ChatView = () => {
 
   const activeChat = useMemo(() => chats.find((c) => c.id === activeChatId), [chats, activeChatId]);
 
+  const isActiveChatMine = useMemo(() => {
+    if (!activeChat || !user?.id) return false;
+    return activeChat.assignedUserId === user.id || activeChat.assignedAgentId === user.id;
+  }, [activeChat, user?.id]);
+
+  const canAgentTransfer = role === 'AGENTE' && activeChat?.status === 'OPEN' && Boolean(activeChat?.queueId) && isActiveChatMine;
+  const canOpenReassign = role === 'ADMIN' || role === 'SUPERVISOR' || canAgentTransfer;
+
   useEffect(() => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
@@ -394,25 +402,32 @@ const ChatView = () => {
           queueIds: [queueId]
         }));
 
-        if (normalizedQueueAgents.length === 0) {
-          const fallback = await queueService
-            .listAllUsers()
-            .then((all) =>
-              (all || []).filter((u) => ['ADMIN', 'SUPERVISOR', 'AGENTE', 'AGENT'].includes((u.role || '').toUpperCase()))
-            )
-            .then((all) =>
-              all.map((u) => ({
-                id: u.id,
-                name: u.fullName || u.name || u.email,
-                role: u.role,
-                queueIds: []
-              }))
-            )
-            .catch(() => []);
-          setAgents(fallback);
-        } else {
-          setAgents(normalizedQueueAgents);
+        const shouldFilterSelf = user?.role === 'AGENTE' && user?.id;
+
+        let candidateAgents = normalizedQueueAgents;
+        if (!candidateAgents.length) {
+          if (user?.role === 'AGENTE') {
+            candidateAgents = [];
+          } else {
+            candidateAgents = await queueService
+              .listAllUsers()
+              .then((all) =>
+                (all || []).filter((u) => ['ADMIN', 'SUPERVISOR', 'AGENTE', 'AGENT'].includes((u.role || '').toUpperCase()))
+              )
+              .then((all) =>
+                all.map((u) => ({
+                  id: u.id,
+                  name: u.fullName || u.name || u.email,
+                  role: u.role,
+                  queueIds: []
+                }))
+              )
+              .catch(() => []);
+          }
         }
+
+        const filtered = shouldFilterSelf ? candidateAgents.filter((a) => a.id !== user.id) : candidateAgents;
+        setAgents(filtered);
 
         setConnections(
           (connRes || []).map((c) => ({
@@ -425,7 +440,7 @@ const ChatView = () => {
         setConnections([]);
       }
     },
-    [queueService]
+    [queueService, user?.id, user?.role]
   );
 
   const loadChats = async (append = false) => {
@@ -579,18 +594,34 @@ const ChatView = () => {
 
   const handleReassignSuccess = useCallback(
     (updatedChat) => {
-      if (!updatedChat) return;
+      if (!updatedChat) return false;
       const normalized = normalizeChat(updatedChat);
+      const keepVisible =
+        role !== 'AGENTE' ||
+        normalized.assignedUserId === user?.id ||
+        normalized.assignedAgentId === user?.id;
+
       setChats((prev) => {
         const map = new Map(prev.map((c) => [c.id, c]));
-        map.set(normalized.id, { ...map.get(normalized.id), ...normalized });
+        if (keepVisible) {
+          map.set(normalized.id, { ...map.get(normalized.id), ...normalized });
+        } else {
+          map.delete(normalized.id);
+        }
         return Array.from(map.values());
       });
-      setActiveTab('OPEN');
-      setActiveChatId(normalized.id);
-      setSnackbar({ severity: 'success', message: 'Chat reasignado' });
+
+      if (keepVisible) {
+        setActiveTab('OPEN');
+        setActiveChatId(normalized.id);
+        setSnackbar({ severity: 'success', message: 'Chat reasignado' });
+      } else {
+        if (activeChatId === normalized.id) setActiveChatId(null);
+        setSnackbar({ severity: 'success', message: 'Chat transferido a otro agente' });
+      }
+      return keepVisible;
     },
-    [normalizeChat]
+    [normalizeChat, role, user?.id, activeChatId]
   );
 
   const handleSend = async (payload) => {
@@ -961,7 +992,7 @@ const ChatView = () => {
               ? handleAssignToMe
               : undefined
           }
-          onReassign={role === 'ADMIN' || role === 'SUPERVISOR' ? () => setShowReassign(true) : undefined}
+          onReassign={canOpenReassign ? () => setShowReassign(true) : undefined}
           onCloseChat={activeChat ? handleCloseChat : undefined}
           quickReplyApi={quickReplyApi}
           chatPanelProps={{
@@ -1106,13 +1137,16 @@ const ChatView = () => {
         chat={activeChat}
         agents={agents}
         connections={connections}
+        role={role}
         onConfirm={async ({ toAgentId, sessionName, reason }) => {
           if (!activeChatId) return;
           try {
             const updated = await chatService.reassignChat(activeChatId, { toAgentId, sessionName, reason });
+            const keepVisible = handleReassignSuccess(updated);
             setShowReassign(false);
-            handleReassignSuccess(updated);
-            await loadMessages(updated.id);
+            if (keepVisible) {
+              await loadMessages(updated.id);
+            }
           } catch (err) {
             handleError(err);
           }

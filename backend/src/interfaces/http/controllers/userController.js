@@ -38,10 +38,10 @@ export const createUserController = async (req, res, next) => {
 
 export const updateUserController = async (req, res, next) => {
   try {
-    const { name, email, username, role, status } = req.body;
+    const { name, email, username, role, status, password } = req.body;
     const result = await updateUser(
       req.params.id,
-      { name, email, username, role, status },
+      { name, email, username, role, status, password },
       { actorId: req.user?.id || null, ip: clientIp(req) }
     );
     res.status(httpStatus.OK).json(ok(result));
