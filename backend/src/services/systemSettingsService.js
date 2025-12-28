@@ -12,7 +12,7 @@ const ensureAdmin = (user) => {
 
 const sanitizeNumber = (value, fallback) => {
   const num = Number(value);
-  if (!Number.isFinite(num) || num <= 0) return fallback;
+  if (!Number.isFinite(num) || num < 0) return fallback;
   return num;
 };
 
@@ -40,6 +40,18 @@ export const updateChatSettings = async (user, payload = {}, { ip = null, userAg
     whatsappHistoryDays: sanitizeNumber(
       payload.whatsappHistoryDays,
       previous.whatsappHistoryDays || env.whatsapp?.historySyncDays || 30
+    ),
+    inactivityAutoCloseEnabled:
+      typeof payload.inactivityAutoCloseEnabled === 'boolean'
+        ? payload.inactivityAutoCloseEnabled
+        : Boolean(previous.inactivityAutoCloseEnabled),
+    inactivityAutoCloseMinutes: sanitizeNumber(
+      (payload.inactivityAutoCloseHours || 0) * 60,
+      (previous.inactivityAutoCloseHours || previous.inactivityAutoCloseMinutes || 2 * 60) * 60 > 0
+        ? previous.inactivityAutoCloseHours
+          ? previous.inactivityAutoCloseHours * 60
+          : previous.inactivityAutoCloseMinutes || 120
+        : 120
     )
   };
 

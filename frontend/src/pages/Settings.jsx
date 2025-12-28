@@ -39,7 +39,9 @@ const Settings = () => {
     gradualAssignmentEnabled: false,
     autoAssignIntervalSeconds: 30,
     maxChatsPerAgent: 10,
-    whatsappHistoryDays: 30
+    whatsappHistoryDays: 30,
+    inactivityAutoCloseEnabled: false,
+    inactivityAutoCloseHours: 2
   });
 
   const loadSettings = async () => {
@@ -78,7 +80,9 @@ const Settings = () => {
         gradualAssignmentEnabled: Boolean(form.gradualAssignmentEnabled),
         autoAssignIntervalSeconds: Number(form.autoAssignIntervalSeconds),
         maxChatsPerAgent: Number(form.maxChatsPerAgent),
-        whatsappHistoryDays: Number(form.whatsappHistoryDays)
+        whatsappHistoryDays: Number(form.whatsappHistoryDays),
+        inactivityAutoCloseEnabled: Boolean(form.inactivityAutoCloseEnabled),
+        inactivityAutoCloseHours: Number(form.inactivityAutoCloseHours)
       });
       setSnackbar({ severity: 'success', message: 'Configuración guardada correctamente' });
     } catch (err) {
@@ -156,14 +160,49 @@ const Settings = () => {
                 />
                 <TextField
                   type="number"
-                  label="Máx. chats por agente"
-                  value={form.maxChatsPerAgent}
-                  onChange={handleChange('maxChatsPerAgent')}
-                  inputProps={{ min: 1 }}
-                  helperText="Límite simultáneo"
-                  fullWidth
-                />
-              </Stack>
+          label="Máx. chats por agente"
+          value={form.maxChatsPerAgent}
+          onChange={handleChange('maxChatsPerAgent')}
+          inputProps={{ min: 1 }}
+          helperText="Límite simultáneo"
+          fullWidth
+        />
+      </Stack>
+    </Stack>
+  </CardContent>
+</Card>
+
+        {/* INACTIVIDAD */}
+        <Card elevation={2}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={700}>
+              Inactividad de chats
+            </Typography>
+            <Typography variant="body2" color="text.secondary" mb={3}>
+              Configura cierre automático por inactividad.
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={form.inactivityAutoCloseEnabled}
+                    onChange={handleChange('inactivityAutoCloseEnabled')}
+                    disabled={loading || saving}
+                  />
+                }
+                label="Cerrar automáticamente"
+              />
+            </Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField
+                type="number"
+                label="Autocierre después de (horas)"
+                value={form.inactivityAutoCloseHours}
+                onChange={handleChange('inactivityAutoCloseHours')}
+                inputProps={{ min: 0 }}
+                helperText="Cerrar chat automáticamente tras inactividad."
+                fullWidth
+              />
             </Stack>
           </CardContent>
         </Card>

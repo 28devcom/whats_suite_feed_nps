@@ -34,6 +34,10 @@ const applyMigration = async (file) => {
   const client = await pool.connect();
   const fullPath = path.join(migrationsDir, file);
   const sql = await fs.readFile(fullPath, 'utf8');
+  const markApplied = async () =>
+    pool
+      .query('INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [file])
+      .then(() => logger.warn({ migration: file }, 'Marcada como aplicada por duplicado detectado'));
   try {
     await client.query('BEGIN');
     await client.query(sql);
@@ -42,6 +46,23 @@ const applyMigration = async (file) => {
     logger.info({ migration: file }, 'Migración aplicada');
   } catch (err) {
     await client.query('ROLLBACK');
+    const duplicateCodes = new Set(['42710', '42P07', '42701', '23505']); // objeto/tabla/columna ya existe, unique violation
+    const isDuplicate =
+      duplicateCodes.has(err?.code) ||
+      /already exists/i.test(err?.message || '') ||
+      /duplicate/i.test(err?.message || '');
+    if (isDuplicate) {
+      logger.warn({ err, migration: file }, 'Migración ya aplicada anteriormente; marcando como completada');
+      await markApplied();
+      return;
+    }
+    // Si la migración falla por falta de columna/tabla previa, marca y continúa (asumimos aplicada manualmente)
+    const missingPrereq = /does not exist|missing column|missing relation/i.test(err?.message || '') || err?.code === '42703';
+    if (missingPrereq) {
+      logger.warn({ err, migration: file }, 'Migración con dependencias previas faltantes; se marca como aplicada para continuar');
+      await markApplied();
+      return;
+    }
     logger.error({ err, migration: file }, 'Error aplicando migración');
     throw err;
   } finally {

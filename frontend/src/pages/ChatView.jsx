@@ -790,6 +790,13 @@ const ChatView = () => {
       });
     });
 
+    socket.on('chat:auto-closed', ({ chat }) => {
+      const target = chat || null;
+      if (target?.id) {
+        setSnackbar({ severity: 'info', message: 'Chat cerrado por inactividad' });
+      }
+    });
+
     socket.on('chat:update', (chat) => {
       if (chat.hidden) {
         setChats((prev) => prev.filter((c) => c.id !== chat.id));
@@ -826,6 +833,7 @@ const ChatView = () => {
       socket.off('message:update', handleStatusUpdate);
       socket.off('chat:new');
       socket.off('chat:update');
+      socket.off('chat:auto-closed');
     };
   }, [token]);
 

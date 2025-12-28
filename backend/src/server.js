@@ -17,6 +17,7 @@ import { getUserQueueIds } from './infra/db/chatRepository.js';
 import { startBroadcastWorker, stopBroadcastWorker } from './modules/broadcast/broadcast.worker.js';
 import { startDashboardAggregator } from './services/dashboardAggregatorService.js';
 import runPendingMigrations from './infra/db/migrationRunner.js';
+import { startChatInactivityMonitor, stopChatInactivityMonitor } from './services/chatInactivityService.js';
 
 const server = http.createServer(app);
 
@@ -112,6 +113,7 @@ const start = async () => {
     await startAutoAssignScheduler();
     startBroadcastWorker();
     dashboardAggTimer = startDashboardAggregator();
+    startChatInactivityMonitor();
     server.listen(env.http.port);
   } catch (err) {
     logger.error({ err }, 'Failed to bootstrap backend');
@@ -123,6 +125,7 @@ const shutdown = async (signal) => {
   logger.info({ signal }, 'Graceful shutdown initiated');
   server.close(async () => {
     stopBroadcastWorker();
+    stopChatInactivityMonitor();
     if (dashboardAggTimer) clearInterval(dashboardAggTimer);
     await shutdownWhatsAppSessions();
     await closeRedis();

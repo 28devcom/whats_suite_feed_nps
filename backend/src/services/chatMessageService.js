@@ -184,6 +184,9 @@ export const sendMessage = async ({ chatId, content, user, ip = null, messageTyp
       status: 'server',
       timestamp: now
     });
+    await pool
+      .query('UPDATE chats SET last_message_at = $1, updated_at = NOW() WHERE id = $2', [now, chatId])
+      .catch(() => {});
     await updateSessionSyncTracking({
       sessionName: chat.whatsappSessionName,
       tenantId: chat.tenantId,

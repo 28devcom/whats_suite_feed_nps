@@ -17,7 +17,10 @@ const ensureChatSchema = async () => {
       ADD COLUMN IF NOT EXISTS contact_name TEXT,
       ADD COLUMN IF NOT EXISTS push_name TEXT,
       ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS is_muted BOOLEAN DEFAULT FALSE;
+      ADD COLUMN IF NOT EXISTS is_muted BOOLEAN DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS inactivity_warning_sent_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS inactivity_warning_delivered_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS inactivity_warning_for_ts TIMESTAMPTZ NULL;
   `);
   chatSchemaEnsured = true;
 };
@@ -70,6 +73,9 @@ const mapChat = (row) => ({
   reassignedAt: row.reassigned_at,
   reassignedByUserId: row.reassigned_by_user_id,
   lastMessageAt: row.last_message_at,
+  inactivityWarningSentAt: row.inactivity_warning_sent_at,
+  inactivityWarningDeliveredAt: row.inactivity_warning_delivered_at,
+  inactivityWarningForTs: row.inactivity_warning_for_ts,
   contactName: row.contact_name,
   pushName: row.push_name,
   isArchived: row.is_archived,
@@ -396,6 +402,103 @@ export const setQueueForSessionMissingQueue = async (sessionName, queueId) => {
     await invalidateAssignment(chat.id);
   }
   return updated.length;
+};
+
+export const listChatsForInactivityWarning = async (warnAfterMinutes) => {
+  await ensureChatSchema();
+  const minutes = Math.max(0, Number(warnAfterMinutes) || 0);
+  if (minutes <= 0) return [];
+  const { rows } = await pool.query(
+    `
+    SELECT *
+    FROM chats
+    WHERE status = 'OPEN'
+      AND assigned_agent_id IS NOT NULL
+      AND COALESCE(last_message_at, created_at) <= NOW() - ($1::int * INTERVAL '1 minute')
+      AND (inactivity_warning_for_ts IS NULL OR inactivity_warning_for_ts < COALESCE(last_message_at, created_at))
+    LIMIT 500
+  `,
+    [minutes]
+  );
+  return rows.map(mapChat);
+};
+
+export const markChatInactivityWarning = async (chatId, { delivered = false, referenceAt = null } = {}) => {
+  await ensureChatSchema();
+  const { rows } = await pool.query(
+    `UPDATE chats
+     SET inactivity_warning_sent_at = NOW(),
+         inactivity_warning_for_ts = COALESCE($3, inactivity_warning_for_ts, last_message_at, created_at),
+         inactivity_warning_delivered_at = CASE WHEN $2 THEN NOW() ELSE inactivity_warning_delivered_at END,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [chatId, delivered, referenceAt]
+  );
+  return rows[0] ? mapChat(rows[0]) : null;
+};
+
+export const listPendingInactivityWarningsForUser = async ({ userId, warnAfterMinutes }) => {
+  await ensureChatSchema();
+  if (!userId) return [];
+  const minutes = Math.max(0, Number(warnAfterMinutes) || 0);
+  if (minutes <= 0) return [];
+  const { rows } = await pool.query(
+    `
+    SELECT *
+    FROM chats
+    WHERE status = 'OPEN'
+      AND assigned_agent_id = $1
+      AND COALESCE(last_message_at, created_at) <= NOW() - ($2::int * INTERVAL '1 minute')
+      AND inactivity_warning_sent_at IS NOT NULL
+      AND inactivity_warning_for_ts IS NOT NULL
+      AND inactivity_warning_for_ts >= COALESCE(last_message_at, created_at)
+      AND (inactivity_warning_delivered_at IS NULL OR inactivity_warning_delivered_at < inactivity_warning_sent_at)
+    LIMIT 200
+  `,
+    [userId, minutes]
+  );
+  return rows.map(mapChat);
+};
+
+export const listChatsForAutoClose = async (autoCloseMinutes) => {
+  await ensureChatSchema();
+  const minutes = Math.max(0, Number(autoCloseMinutes) || 0);
+  if (minutes <= 0) return [];
+  const { rows } = await pool.query(
+    `
+    SELECT *
+    FROM chats
+    WHERE status = 'OPEN'
+      AND COALESCE(last_message_at, created_at) <= NOW() - ($1::int * INTERVAL '1 minute')
+    LIMIT 200
+  `,
+    [minutes]
+  );
+  return rows.map(mapChat);
+};
+
+export const closeChatForInactivityDb = async (chatId) => {
+  await ensureChatSchema();
+  const { rows } = await pool.query(
+    `UPDATE chats
+     SET status = 'CLOSED',
+         closed_at = NOW(),
+         assigned_agent_id = NULL,
+         assigned_user_id = NULL,
+         assigned_at = NULL,
+         inactivity_warning_sent_at = NULL,
+         inactivity_warning_delivered_at = NULL,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [chatId]
+  );
+  if (!rows[0]) return null;
+  const chat = mapChat(rows[0]);
+  await cacheChat(chat);
+  await cacheAssignment(chatId, { assignedAgentId: null, assignedAt: null });
+  return chat;
 };
 
 export const reassignChatWithConnectionDb = async ({ chatId, newAgentId, newSessionName, actorUserId = null }) => {
