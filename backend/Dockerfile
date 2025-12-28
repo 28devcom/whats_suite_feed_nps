@@ -8,6 +8,7 @@ RUN npm install --omit=dev
 
 COPY src ./src
 COPY scripts ./scripts
+COPY migrations ./migrations
 ENV NODE_ENV=production
 ENV TZ=UTC
 EXPOSE 3000

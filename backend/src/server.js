@@ -16,6 +16,7 @@ import { initSocketHub } from './infra/realtime/socketHub.js';
 import { getUserQueueIds } from './infra/db/chatRepository.js';
 import { startBroadcastWorker, stopBroadcastWorker } from './modules/broadcast/broadcast.worker.js';
 import { startDashboardAggregator } from './services/dashboardAggregatorService.js';
+import runPendingMigrations from './infra/db/migrationRunner.js';
 
 const server = http.createServer(app);
 
@@ -103,6 +104,7 @@ const start = async () => {
   try {
     await pool.query('SELECT 1');
     await ensureRedisConnection();
+    await runPendingMigrations();
     logger.info({ port: env.http.port, env: env.nodeEnv }, 'Starting WhatsSuite backend');
     await ensureAdminSeed();
     const recovered = await bootstrapValidSessions();
