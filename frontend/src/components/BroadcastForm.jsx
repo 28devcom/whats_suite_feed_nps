@@ -61,8 +61,8 @@ const BroadcastForm = ({
     name: '',
     messageType: 'text',
     text: '',
-    delayMin: 400,
-    delayMax: 1200,
+    delayMin: 1,
+    delayMax: 3,
     recipientsText: '',
     connections: [],
     templateId: null,
@@ -341,14 +341,14 @@ const BroadcastForm = ({
               />
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                 <TextField
-                  label="Delay mínimo (ms)"
+                  label="Delay mínimo (s)"
                   type="number"
                   value={form.delayMin}
                   onChange={(e) => setForm((prev) => ({ ...prev, delayMin: e.target.value }))}
                   InputProps={{ startAdornment: <InputAdornment position="start">≥</InputAdornment> }}
                 />
                 <TextField
-                  label="Delay máximo (ms)"
+                  label="Delay máximo (s)"
                   type="number"
                   value={form.delayMax}
                   onChange={(e) => setForm((prev) => ({ ...prev, delayMax: e.target.value }))}

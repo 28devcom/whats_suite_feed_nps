@@ -134,9 +134,10 @@ const parseXlsxRecipients = (xlsxFile) => {
 };
 
 const validateDelays = ({ delayMin, delayMax }) => {
-  const min = Math.max(0, Number(delayMin) || 0);
-  const max = Math.max(min, Number(delayMax) || min);
-  return { delayMinMs: min, delayMaxMs: max };
+  const minSeconds = Math.max(0, Number(delayMin) || 0);
+  const maxSeconds = Math.max(minSeconds, Number(delayMax) || minSeconds);
+  // UI envía segundos, almacenamos en ms para compatibilidad con la cola
+  return { delayMinMs: minSeconds * 1000, delayMaxMs: maxSeconds * 1000 };
 };
 
 const buildPayload = async ({ messageType, text, file, template }) => {

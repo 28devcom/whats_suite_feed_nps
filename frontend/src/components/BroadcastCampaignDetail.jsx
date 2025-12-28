@@ -27,6 +27,12 @@ const statusColor = (status) => {
   }
 };
 
+const formatSeconds = (ms) => {
+  const secs = Number(ms || 0) / 1000;
+  if (!Number.isFinite(secs)) return '0';
+  return secs % 1 === 0 ? secs.toString() : secs.toFixed(2).replace(/\.?0+$/, '');
+};
+
 const BroadcastCampaignDetail = ({ open, onClose, detail }) => {
   if (!detail) return null;
   const { campaign, messages, stats } = detail;
@@ -66,7 +72,7 @@ const BroadcastCampaignDetail = ({ open, onClose, detail }) => {
                     }
                     secondary={
                       <Typography variant="caption" color="text.secondary">
-                        Intentos: {m.attempts} • Sesión: {m.session_name || 'N/D'} • Delay: {m.delay_ms || 0}ms
+                        Intentos: {m.attempts} • Sesión: {m.session_name || 'N/D'} • Delay: {formatSeconds(m.delay_ms)}s
                         {m.error_reason ? ` • Error: ${m.error_reason}` : ''}
                       </Typography>
                     }

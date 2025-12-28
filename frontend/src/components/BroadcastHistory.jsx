@@ -26,6 +26,12 @@ const statusColor = (status) => {
   }
 };
 
+const formatSeconds = (ms) => {
+  const secs = Number(ms || 0) / 1000;
+  if (!Number.isFinite(secs)) return '0';
+  return secs % 1 === 0 ? secs.toString() : secs.toFixed(2).replace(/\.?0+$/, '');
+};
+
 const BroadcastHistory = ({ items = [], loading = false, onRefresh, onSelect }) => {
   if (loading) return <SkeletonList rows={3} withAvatar={false} />;
   if (!items.length) {
@@ -83,7 +89,7 @@ const BroadcastHistory = ({ items = [], loading = false, onRefresh, onSelect }) 
               </Stack>
             </Box>
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              <Chip size="small" label={`Delay ${c.delay_min_ms || 0}-${c.delay_max_ms || 0}ms`} />
+              <Chip size="small" label={`Delay ${formatSeconds(c.delay_min_ms)}-${formatSeconds(c.delay_max_ms)}s`} />
               <Chip size="small" label={`${(c.connections || []).length} conexiones`} />
             </Stack>
             {c.last_error && (
