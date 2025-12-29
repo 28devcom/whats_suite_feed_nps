@@ -70,6 +70,7 @@ const ChatWindow = ({
   onReassign,
   onCloseChat,
   loadingMessages = false,
+  onDeleteMessage,
   chatPanelProps = {},
   quickReplyApi = {}
 }) => {
@@ -137,13 +138,19 @@ const ChatWindow = ({
     }
 
     if (isSupervisor) {
-      if (isClosed) {
-        return { canSend: false, reason: 'Chat cerrado (solo lectura)' };
-      }
       return { canSend: true };
     }
 
     return { canSend: false, reason: 'Sin permisos' };
+  }, [chat, role, userId]);
+
+  const canModerateMessages = useMemo(() => {
+    if (!chat) return false;
+    if (role === 'ADMIN' || role === 'SUPERVISOR') return true;
+    if (role === 'AGENTE') {
+      return chat.assignedAgentId === userId || chat.assignedUserId === userId;
+    }
+    return false;
   }, [chat, role, userId]);
 
   /* =========================
@@ -493,7 +500,7 @@ const ChatWindow = ({
               </Button>
             )}
 
-          {onReassign && chat.status !== 'CLOSED' && (
+          {onReassign && (
             <Button size="small" variant="contained" onClick={onReassign}>
               {role === 'AGENTE' ? 'Transferir' : 'Reasignar'}
             </Button>
@@ -526,6 +533,7 @@ const ChatWindow = ({
             onPreview={(p) =>
               setPreview({ open: true, ...p })
             }
+            onDelete={canModerateMessages ? () => onDeleteMessage?.(m) : undefined}
           />
         )}
         footer={footer}

@@ -152,11 +152,17 @@ const processMessage = async (message) => {
   }
   const { next, runtime } = await lockAndUpdateCampaignRuntime(message.campaign_id, (rt) => {
     const chosen = pickConnection(rt.connections || [], statuses, rt.last_connection || null);
-    const delay = pickDelay(rt.delay_min_ms, rt.delay_max_ms, rt.last_delay_ms);
-    return { lastDelayMs: delay, lastConnection: chosen };
+    const delaySeconds = pickDelay(rt.delay_min_seconds, rt.delay_max_seconds, rt.last_delay_seconds);
+    return { lastDelaySeconds: delaySeconds, lastConnection: chosen };
   });
   const connection = next?.lastConnection || runtime?.last_connection || null;
-  const delayMs = typeof next?.lastDelayMs === 'number' ? next.lastDelayMs : runtime?.last_delay_ms || 0;
+  const delaySeconds =
+    typeof next?.lastDelaySeconds === 'number'
+      ? next.lastDelaySeconds
+      : typeof next?.lastDelayMs === 'number'
+        ? next.lastDelayMs
+        : runtime?.last_delay_seconds || 0;
+  const delayMs = Math.max(0, Number(delaySeconds || 0) * 1000);
   if (!connection) {
     const final = currentAttempt >= (message.max_attempts || 3);
     await updateMessageError({
@@ -178,7 +184,7 @@ const processMessage = async (message) => {
       remoteNumber: message.target,
       content
     });
-    await updateMessageSent({ messageId: message.id, sessionName: connection, delayMs });
+    await updateMessageSent({ messageId: message.id, sessionName: connection, delaySeconds });
   } catch (err) {
     const isFinal = currentAttempt >= (message.max_attempts || 3);
     await updateMessageError({

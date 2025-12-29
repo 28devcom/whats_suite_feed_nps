@@ -1,9 +1,11 @@
 import { AppError } from '../shared/errors.js';
+import bcrypt from 'bcrypt';
 import { insertUser, listUsers as listUsersDb, findUserById as findUserByIdDb, updateUser as updateUserDb } from '../infra/db/models/userModel.js';
 import { USER_ROLES, USER_STATUS } from '../domain/user/user.entity.js';
 import { recordAuditLog } from '../infra/db/auditRepository.js';
 import pool from '../infra/db/postgres.js';
 import { forceLogout } from './authService.js';
+import { findById as findAuthUser } from '../infra/db/userRepository.js';
 
 const sanitizeUser = (user) => {
   if (!user) return null;
@@ -144,4 +146,37 @@ export const deleteUser = async (id, { actorId = null, ip = null, confirm = fals
     metadata: { email: existing.email, username: existing.username, deletedAt }
   });
   return { deleted: true, soft: true };
+};
+
+export const changePassword = async ({ targetUserId, currentPassword, newPassword, actor = {}, ip = null, userAgent = null }) => {
+  const target = await findAuthUser(targetUserId);
+  if (!target) throw new AppError('Usuario no encontrado', 404);
+  const isSelf = actor?.id === targetUserId;
+  const isAdmin = actor?.role === USER_ROLES.ADMIN;
+  const isSupervisor = actor?.role === USER_ROLES.SUPERVISOR;
+  if (!isSelf && !isAdmin && !isSupervisor) {
+    throw new AppError('No autorizado', 403);
+  }
+  const trimmedNew = (newPassword || '').trim();
+  if (!trimmedNew || trimmedNew.length < 6) {
+    throw new AppError('Contraseña mínima 6 caracteres', 400);
+  }
+  if (isSelf) {
+    const match = await bcrypt.compare(currentPassword || '', target.passwordHash || '');
+    if (!match) throw new AppError('Contraseña actual incorrecta', 401);
+  }
+  const updated = await updateUserDb(targetUserId, { passwordPlain: trimmedNew });
+  if (!updated) throw new AppError('No se pudo actualizar la contraseña', 500);
+
+  await forceLogout({ targetUserId, performedBy: actor?.id || null, ip, userAgent }).catch(() => {});
+
+  await logUserEvent({
+    actorId: actor?.id || null,
+    action: 'user_password_changed',
+    targetId: targetUserId,
+    ip,
+    metadata: { self: isSelf, byAdmin: isAdmin || isSupervisor }
+  });
+
+  return sanitizeUser(updated);
 };

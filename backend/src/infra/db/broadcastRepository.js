@@ -51,8 +51,8 @@ export const createBroadcastCampaign = async ({
   name,
   messageType,
   templateId,
-  delayMinMs,
-  delayMaxMs,
+  delayMinSeconds,
+  delayMaxSeconds,
   connections,
   startAt = null,
   stopAt = null,
@@ -60,15 +60,15 @@ export const createBroadcastCampaign = async ({
 }) => {
   const tenantId = await resolveTenantId(createdBy);
   const { rows } = await pool.query(
-    `INSERT INTO broadcast_campaigns (name, message_type, template_id, delay_min_ms, delay_max_ms, connections, start_at, stop_at, created_by, tenant_id, status)
+    `INSERT INTO broadcast_campaigns (name, message_type, template_id, delay_min_seconds, delay_max_seconds, connections, start_at, stop_at, created_by, tenant_id, status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
      RETURNING *`,
     [
       name,
       messageType,
       templateId || null,
-      delayMinMs,
-      delayMaxMs,
+      delayMinSeconds,
+      delayMaxSeconds,
       connections || [],
       startAt || null,
       stopAt || null,
@@ -123,12 +123,12 @@ export const fetchPendingBroadcastBatch = async (limit = 25) => {
       SELECT
         bm.*,
         bc.name AS campaign_name,
-        bc.delay_min_ms,
-        bc.delay_max_ms,
+        bc.delay_min_seconds,
+        bc.delay_max_seconds,
         bc.connections,
         bc.start_at,
         bc.stop_at,
-        bc.last_delay_ms,
+        bc.last_delay_seconds,
         bc.last_connection,
         bc.message_type AS campaign_message_type,
         bc.template_id AS campaign_template_id
@@ -169,16 +169,16 @@ export const fetchPendingBroadcastBatch = async (limit = 25) => {
   }
 };
 
-export const updateMessageSent = async ({ messageId, sessionName, delayMs }) => {
+export const updateMessageSent = async ({ messageId, sessionName, delaySeconds }) => {
   await pool.query(
     `UPDATE broadcast_messages
      SET status = 'sent',
          session_name = $2,
-         delay_ms = $3,
+         delay_seconds = $3,
          sent_at = NOW(),
          updated_at = NOW()
      WHERE id = $1`,
-    [messageId, sessionName || null, delayMs || null]
+    [messageId, sessionName || null, delaySeconds || null]
   );
 };
 
@@ -199,7 +199,7 @@ export const updateMessageError = async ({ messageId, error, retryAt, final }) =
 export const updateCampaignRuntime = async ({ campaignId, lastDelayMs, lastConnection }) => {
   await pool.query(
     `UPDATE broadcast_campaigns
-     SET last_delay_ms = $2,
+     SET last_delay_seconds = $2,
          last_connection = $3,
          updated_at = NOW()
      WHERE id = $1`,
@@ -212,7 +212,7 @@ export const lockAndUpdateCampaignRuntime = async (campaignId, updater) => {
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `SELECT id, delay_min_ms, delay_max_ms, last_delay_ms, last_connection, connections
+      `SELECT id, delay_min_seconds, delay_max_seconds, last_delay_seconds, last_connection, connections
        FROM broadcast_campaigns
        WHERE id = $1
        FOR UPDATE`,
@@ -223,11 +223,11 @@ export const lockAndUpdateCampaignRuntime = async (campaignId, updater) => {
     const next = (await updater(runtime)) || {};
     await client.query(
       `UPDATE broadcast_campaigns
-       SET last_delay_ms = $2,
+       SET last_delay_seconds = $2,
            last_connection = $3,
            updated_at = NOW()
        WHERE id = $1`,
-      [campaignId, next.lastDelayMs || null, next.lastConnection || null]
+      [campaignId, next.lastDelaySeconds || next.lastDelayMs || null, next.lastConnection || null]
     );
     await client.query('COMMIT');
     return { runtime, next };
@@ -296,7 +296,7 @@ export const getCampaignById = async (id) => {
 
 export const listBroadcastMessagesByCampaign = async (campaignId, limit = 200) => {
   const { rows } = await pool.query(
-    `SELECT id, target, status, attempts, error_reason, session_name, delay_ms, message_type, sent_at, updated_at
+    `SELECT id, target, status, attempts, error_reason, session_name, delay_seconds, message_type, sent_at, updated_at
      FROM broadcast_messages
      WHERE campaign_id = $1
      ORDER BY created_at DESC

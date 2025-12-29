@@ -95,6 +95,12 @@ const MessageInput = ({
     return () => previews.forEach(p => p.url && URL.revokeObjectURL(p.url));
   }, [previews]);
 
+  const canSend =
+    !disabled &&
+    !uploading &&
+    !recording &&
+    (text.trim().length > 0 || attachments.length > 0 || Boolean(recordPreviewUrl));
+
   /* ===================== HANDLERS ===================== */
   const handleFileChange = useCallback((e) => {
     const files = Array.from(e.target.files || []);
@@ -108,9 +114,9 @@ const MessageInput = ({
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey && !recording) {
       e.preventDefault();
-      onSend?.();
+      if (canSend) onSend?.();
     }
-  }, [onSend, recording]);
+  }, [onSend, recording, canSend]);
 
   /* ===================== RENDER ===================== */
   return (
@@ -186,7 +192,7 @@ const MessageInput = ({
             <span>
               <IconButton
                 onClick={onSend}
-                disabled={disabled || uploading || recording || !text.trim()}
+                disabled={!canSend}
                 sx={(theme) => controlButtonSx(theme, true, 'primary')}
               >
                 <CloudUploadIcon />

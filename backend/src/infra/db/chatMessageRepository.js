@@ -13,6 +13,9 @@ const mapMessage = (row) => ({
   content: row.content,
   whatsappMessageId: row.whatsapp_message_id,
   status: row.status,
+  originalContent: row.original_content,
+  editedAt: row.edited_at,
+  deletedForRemote: row.deleted_for_remote,
   timestamp: row.timestamp,
   deletedAt: row.deleted_at,
   updatedAt: row.updated_at,
@@ -57,6 +60,46 @@ export const findMessageByUniqueKey = async ({ sessionName, remoteNumber, whatsa
   }
   sql += ' LIMIT 1';
   const { rows } = await pool.query(sql, params);
+  return rows[0] ? mapMessage(rows[0]) : null;
+};
+
+export const findMessageByWhatsappId = async (whatsappMessageId, tenantId = null) => {
+  if (!whatsappMessageId) return null;
+  const params = [whatsappMessageId];
+  let sql = `
+    SELECT *
+    FROM chat_messages
+    WHERE whatsapp_message_id = $1
+  `;
+  if (tenantId) {
+    params.push(tenantId);
+    sql += ` AND tenant_id = $${params.length}`;
+  }
+  sql += ' ORDER BY timestamp DESC NULLS LAST, created_at DESC LIMIT 1';
+  const { rows } = await pool.query(sql, params);
+  if (rows[0]) return mapMessage(rows[0]);
+
+  // Búsqueda insensible a mayúsculas por whatsapp_message_id
+  const lower = whatsappMessageId.toLowerCase();
+  const paramsLower = [lower];
+  let sqlLower = `
+    SELECT *
+    FROM chat_messages
+    WHERE LOWER(whatsapp_message_id) = $1
+  `;
+  if (tenantId) {
+    paramsLower.push(tenantId);
+    sqlLower += ` AND tenant_id = $${paramsLower.length}`;
+  }
+  sqlLower += ' ORDER BY timestamp DESC NULLS LAST, created_at DESC LIMIT 1';
+  const resLower = await pool.query(sqlLower, paramsLower);
+  if (resLower.rows[0]) return mapMessage(resLower.rows[0]);
+  return rows[0] ? mapMessage(rows[0]) : null;
+};
+
+export const getMessageById = async (id) => {
+  if (!id) return null;
+  const { rows } = await pool.query('SELECT * FROM chat_messages WHERE id = $1 LIMIT 1', [id]);
   return rows[0] ? mapMessage(rows[0]) : null;
 };
 
@@ -145,7 +188,9 @@ export const updateMessageStatus = async ({
       UPDATE chat_messages
       SET status = COALESCE($1, status),
           content = CASE WHEN $2::jsonb IS NOT NULL THEN $2::jsonb ELSE content END,
+          original_content = CASE WHEN $2::jsonb IS NOT NULL THEN COALESCE(original_content, content) ELSE original_content END,
           timestamp = COALESCE($3, timestamp),
+          edited_at = CASE WHEN $2::jsonb IS NOT NULL THEN NOW() ELSE edited_at END,
           updated_at = NOW()
       WHERE whatsapp_session_name = $4
         AND remote_number = $5
@@ -167,7 +212,9 @@ export const updateMessageStatus = async ({
     UPDATE chat_messages
     SET status = COALESCE($1, status),
         content = CASE WHEN $2::jsonb IS NOT NULL THEN $2::jsonb ELSE content END,
+        original_content = CASE WHEN $2::jsonb IS NOT NULL THEN COALESCE(original_content, content) ELSE original_content END,
         timestamp = COALESCE($3, timestamp),
+        edited_at = CASE WHEN $2::jsonb IS NOT NULL THEN NOW() ELSE edited_at END,
         updated_at = NOW()
     WHERE whatsapp_session_name = $4
       AND whatsapp_message_id = $5
@@ -186,7 +233,9 @@ export const updateMessageStatus = async ({
     UPDATE chat_messages
     SET status = COALESCE($1, status),
         content = CASE WHEN $2::jsonb IS NOT NULL THEN $2::jsonb ELSE content END,
+        original_content = CASE WHEN $2::jsonb IS NOT NULL THEN COALESCE(original_content, content) ELSE original_content END,
         timestamp = COALESCE($3, timestamp),
+        edited_at = CASE WHEN $2::jsonb IS NOT NULL THEN NOW() ELSE edited_at END,
         updated_at = NOW()
     WHERE whatsapp_message_id = $4
       ${tenantId ? `AND tenant_id = $${paramsById.push(tenantId)}` : ''}
@@ -199,6 +248,7 @@ export const updateMessageStatus = async ({
       UPDATE chat_messages
       SET status = COALESCE($1, status),
           content = CASE WHEN $2::jsonb IS NOT NULL THEN $2::jsonb ELSE content END,
+          original_content = CASE WHEN $2::jsonb IS NOT NULL THEN COALESCE(original_content, content) ELSE original_content END,
           timestamp = COALESCE($3, timestamp),
           updated_at = NOW()
       WHERE LOWER(whatsapp_message_id) = $4
@@ -219,23 +269,51 @@ export const updateMessageStatus = async ({
 };
 
 export const softDeleteMessage = async ({ sessionName, remoteNumber, whatsappMessageId, tenantId = null }) => {
-  const params = [sessionName, remoteNumber, whatsappMessageId];
-  const { rows } = await pool.query(
-    `UPDATE chat_messages
-     SET deleted_at = NOW(),
-         status = 'deleted',
-         updated_at = NOW()
-     WHERE whatsapp_session_name = $1
-       AND remote_number = $2
-       AND whatsapp_message_id = $3
-       ${tenantId ? `AND tenant_id = $${params.push(tenantId)}` : ''}
-     RETURNING *`,
-    params
-  );
-  if (!rows[0]) return null;
-  const msg = mapMessage(rows[0]);
-  await invalidateChat(msg.chatId);
-  return msg;
+  const normalizedRemote = remoteNumber ? String(remoteNumber).replace(/[^\d]/g, '') : remoteNumber;
+  const attempts = [
+    { useSession: true, remote: remoteNumber },
+    { useSession: true, remote: normalizedRemote && normalizedRemote !== remoteNumber ? normalizedRemote : null },
+    { useSession: true, remote: null },
+    { useSession: false, remote: null }
+  ];
+
+  for (const attempt of attempts) {
+    if (!attempt.useSession && !whatsappMessageId) continue;
+    const params = [];
+    let where = 'whatsapp_message_id = $1';
+    params.push(whatsappMessageId);
+
+    if (attempt.useSession && sessionName) {
+      params.unshift(sessionName);
+      where = 'whatsapp_session_name = $1 AND whatsapp_message_id = $2';
+    }
+    if (attempt.remote) {
+      params.push(attempt.remote);
+      where += ` AND remote_number = $${params.length}`;
+    }
+    if (tenantId) {
+      params.push(tenantId);
+      where += ` AND tenant_id = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE chat_messages
+       SET deleted_at = NOW(),
+           status = 'deleted',
+           deleted_for_remote = TRUE,
+           updated_at = NOW()
+       WHERE ${where}
+       RETURNING *`,
+      params
+    );
+    if (rows[0]) {
+      const msg = mapMessage(rows[0]);
+      await invalidateChat(msg.chatId);
+      return msg;
+    }
+  }
+  logger.warn({ sessionName, remoteNumber, whatsappMessageId, tag: 'MSG_DELETE_MISS' }, 'No se pudo marcar mensaje como eliminado');
+  return null;
 };
 
 export const listMessagesByChat = async ({ chatId, limit = 50, cursor = null }) => {

@@ -14,7 +14,10 @@ export const createUsersService = ({ getToken, onUnauthorized } = {}) => {
   const deleteUser = async (id, { confirm = false } = {}) =>
     client.request(`/users/${id}?confirm=${confirm}`, { method: 'DELETE' });
 
-  return { getUsers, getUserById, createUser, updateUser, deleteUser };
+  const changePassword = async (id, { currentPassword, newPassword }) =>
+    client.request(`/users/${id}/password`, { method: 'PUT', body: { currentPassword, newPassword } });
+
+  return { getUsers, getUserById, createUser, updateUser, deleteUser, changePassword };
 };
 
 export default createUsersService;

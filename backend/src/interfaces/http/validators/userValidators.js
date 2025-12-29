@@ -24,3 +24,9 @@ export const updateUserValidator = [
   body('role').optional().isIn(roleValues).withMessage('Rol inválido'),
   body('status').optional().isIn(statusValues).withMessage('Estado inválido')
 ];
+
+export const changePasswordValidator = [
+  ...userIdParam,
+  body('newPassword').isLength({ min: 6 }).withMessage('Nueva contraseña mínimo 6 caracteres'),
+  body('currentPassword').optional().isString()
+];

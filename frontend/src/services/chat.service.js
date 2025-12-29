@@ -79,6 +79,9 @@ export const createChatService = ({ getToken, onUnauthorized } = {}) => {
   const reassignChat = async (chatId, payload) =>
     client.request(`/chats/${chatId}/reassign`, { method: 'POST', body: payload });
 
+  const deleteMessage = async (messageId) =>
+    client.request(`/messages/${messageId}/delete`, { method: 'POST' });
+
   const createChat = async ({ sessionName, contact, queueId }) =>
     client.request(`/chats`, { method: 'POST', body: { sessionName, contact, queueId } });
 
@@ -94,6 +97,7 @@ export const createChatService = ({ getToken, onUnauthorized } = {}) => {
     sendMessage,
     sendMedia,
     reassignChat,
+    deleteMessage,
     createChat,
     listConnections
   };

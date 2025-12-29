@@ -23,7 +23,7 @@ const QuickReplies = lazy(() => import('./pages/QuickReplies.jsx'));
 const RoleLanding = () => {
   const { user } = useAuth();
   if (!user) return <Navigate to="/" replace />;
-  const target = user.role === 'AGENTE' ? '/chat' : '/status';
+  const target = '/chat';
   return <Navigate to={target} replace />;
 };
 

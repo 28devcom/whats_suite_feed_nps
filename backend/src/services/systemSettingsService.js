@@ -45,14 +45,18 @@ export const updateChatSettings = async (user, payload = {}, { ip = null, userAg
       typeof payload.inactivityAutoCloseEnabled === 'boolean'
         ? payload.inactivityAutoCloseEnabled
         : Boolean(previous.inactivityAutoCloseEnabled),
-    inactivityAutoCloseMinutes: sanitizeNumber(
-      (payload.inactivityAutoCloseHours || 0) * 60,
-      (previous.inactivityAutoCloseHours || previous.inactivityAutoCloseMinutes || 2 * 60) * 60 > 0
-        ? previous.inactivityAutoCloseHours
-          ? previous.inactivityAutoCloseHours * 60
-          : previous.inactivityAutoCloseMinutes || 120
-        : 120
-    )
+    inactivityAutoCloseHours: (() => {
+      const maxHours = 90 * 24; // 90 días
+      const defaultHours = 72;
+      const prevHours =
+        Number.isFinite(previous.inactivityAutoCloseHours) && previous.inactivityAutoCloseHours >= 0
+          ? previous.inactivityAutoCloseHours
+          : Number(previous.inactivityAutoCloseMinutes || 0) / 60 || defaultHours;
+      const rawHours = Number(payload.inactivityAutoCloseHours);
+      const baseHours = Number.isFinite(rawHours) && rawHours >= 0 ? rawHours : prevHours;
+      const clamped = Math.min(Math.max(baseHours, 0), maxHours);
+      return clamped;
+    })()
   };
 
   const updated = await upsertSystemSettings(sanitized);

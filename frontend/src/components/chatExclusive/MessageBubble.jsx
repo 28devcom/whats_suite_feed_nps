@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Chip, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, Stack, Tooltip, Typography, IconButton, Menu, MenuItem } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -10,6 +10,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CloseIcon from '@mui/icons-material/Close';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 
 const statusLabel = (status) => {
   switch (status) {
@@ -23,6 +24,8 @@ const statusLabel = (status) => {
       return 'Leído';
     case 'failed':
       return 'No enviado';
+    case 'deleted':
+      return 'Eliminado';
     case 'pending':
     default:
       return 'Enviando';
@@ -41,9 +44,20 @@ const renderStatusIcon = (status) => {
       return <DoneAllIcon fontSize="inherit" sx={{ color: 'info.main' }} />;
     case 'failed':
       return <CloseIcon fontSize="inherit" color="error" />;
+    case 'deleted':
+      return <CloseIcon fontSize="inherit" color="action" />;
     case 'pending':
     default:
       return <AccessTimeIcon fontSize="inherit" color="action" />;
+  }
+};
+
+const formatTimestamp = (ts) => {
+  if (!ts) return '';
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
   }
 };
 
@@ -212,7 +226,7 @@ const renderMedia = (media, mediaUrl, onPreview) => {
   return null;
 };
 
-const MessageBubble = ({ message, onPreview }) => {
+const MessageBubble = ({ message, onPreview, onDelete }) => {
   const mine = message.direction === 'out';
   const isSystem =
     message.type === 'system' ||
@@ -220,10 +234,17 @@ const MessageBubble = ({ message, onPreview }) => {
     message.messageType === 'SYSTEM' ||
     message?.content?.type === 'system';
   const content = message?.content || {};
-  const text = typeof content === 'string' ? content : content.text || extractTextFromPayload(content.payload) || content.messageId || '[sin texto]';
+  const deleted = Boolean(message.deletedForRemote || message.deleted_at || message.deletedAt || message.status === 'deleted');
+  const extracted = extractTextFromPayload(content.payload);
+  const text =
+    typeof content === 'string'
+      ? content
+      : content.text || extracted || (deleted ? '' : '');
   const createdAt = new Date(message.timestamp || message.createdAt || Date.now());
+  const editedAt = message.editedAt ? new Date(message.editedAt) : null;
   const [mediaUrl, setMediaUrl] = useState(null);
   const [mediaError, setMediaError] = useState(null);
+  const [anchorEl, setAnchorEl] = useState(null);
   const media = content.media;
 
   useEffect(() => {
@@ -263,14 +284,50 @@ const MessageBubble = ({ message, onPreview }) => {
           borderRadius: 1.5,
           maxWidth: { xs: '100%', md: '78%' },
           border: `1px solid ${mine ? alpha(theme.palette.primary.main, 0.3) : border}`,
-          boxShadow: 'none'
+          boxShadow: 'none',
+          position: 'relative',
+          paddingTop: mine && onDelete ? 2 : 1
         };
       }}
     >
+      {mine && !deleted && onDelete && (
+        <Box sx={{ position: 'absolute', top: 4, right: 4 }}>
+          <IconButton
+            size="small"
+            aria-label="Acciones de mensaje"
+            onClick={(e) => setAnchorEl(e.currentTarget)}
+          >
+            <ArrowDropDownIcon fontSize="small" />
+          </IconButton>
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={() => setAnchorEl(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem onClick={() => { setAnchorEl(null); onDelete(message); }} sx={{ color: 'error.main' }}>
+              Eliminar
+            </MenuItem>
+          </Menu>
+        </Box>
+      )}
       <Stack spacing={0.75}>
-        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+        <Typography
+          variant="body2"
+          sx={{
+            whiteSpace: 'pre-wrap',
+            opacity: deleted ? 0.35 : 1,
+            fontStyle: deleted ? 'italic' : 'normal'
+          }}
+        >
           {text}
         </Typography>
+        {deleted && (
+          <Typography variant="caption" color="text.secondary">
+            Eliminado para el cliente
+          </Typography>
+        )}
         {mediaError && (
           <Typography variant="caption" color="error.main">
             {mediaError}
@@ -294,7 +351,7 @@ const MessageBubble = ({ message, onPreview }) => {
           <Typography variant="caption">
             {createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Typography>
-          {mine && (
+          {mine && !deleted && (
             <Tooltip title={statusLabel(message.status)}>
               <Box sx={{ display: 'flex', alignItems: 'center', ml: 0.5 }}>{renderStatusIcon(message.status)}</Box>
             </Tooltip>

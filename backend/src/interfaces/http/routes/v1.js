@@ -5,6 +5,8 @@ import authRoutes from './authRoutes.js';
 import messageRoutes from './messageRoutes.js';
 import { sendChatMessageCommandController } from '../controllers/messageController.js';
 import { authorize } from '../middlewares/authMiddleware.js';
+import validateRequest from '../middlewares/validateRequest.js';
+import { sendMessageValidator } from '../validators/messageValidators.js';
 import { ROLES } from '../../../domain/user/user.js';
 import assignmentRoutes from './assignmentRoutes.js';
 import massMessagingRoutes from './massMessagingRoutes.js';
@@ -38,9 +40,11 @@ router.use(authenticate, audit('api_call', (req) => ({ resource: req.path })));
 router.post(
   '/messages/send',
   authorize(ROLES.ADMIN, ROLES.SUPERVISOR, ROLES.AGENTE),
+  sendMessageValidator,
+  validateRequest,
   sendChatMessageCommandController
 );
-router.use('/messaging', messageRoutes);
+router.use('/messages', messageRoutes);
 router.use('/assignments', assignmentRoutes);
 router.use('/mass', massMessagingRoutes);
 router.use('/audit', auditRoutes);

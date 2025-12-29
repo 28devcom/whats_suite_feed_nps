@@ -27,8 +27,8 @@ const statusColor = (status) => {
   }
 };
 
-const formatSeconds = (ms) => {
-  const secs = Number(ms || 0) / 1000;
+const formatSeconds = (seconds) => {
+  const secs = Number(seconds || 0);
   if (!Number.isFinite(secs)) return '0';
   return secs % 1 === 0 ? secs.toString() : secs.toFixed(2).replace(/\.?0+$/, '');
 };
@@ -72,7 +72,8 @@ const BroadcastCampaignDetail = ({ open, onClose, detail }) => {
                     }
                     secondary={
                       <Typography variant="caption" color="text.secondary">
-                        Intentos: {m.attempts} • Sesión: {m.session_name || 'N/D'} • Delay: {formatSeconds(m.delay_ms)}s
+                        Intentos: {m.attempts} • Sesión: {m.session_name || 'N/D'} • Delay:{' '}
+                        {formatSeconds(m.delay_seconds ?? m.delay_ms)}s
                         {m.error_reason ? ` • Error: ${m.error_reason}` : ''}
                       </Typography>
                     }

@@ -137,6 +137,12 @@ const ChatView = () => {
   useEffect(() => {
     quickReplyCacheRef.current.clear();
   }, [token]);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [moderating, setModerating] = useState({ delete: false });
+
+  useEffect(() => {
+    setDeleteTarget(null);
+  }, [activeChatId]);
 
   const getMessageKey = useCallback((m) => {
     if (!m) return null;
@@ -149,6 +155,22 @@ const ChatView = () => {
     );
   }, []);
 
+  const hasRenderableContent = useCallback((m) => {
+    if (!m || !m.content) return false;
+    const content = m.content;
+    if (typeof content === 'string' && content.trim()) return true;
+    if (content.text && content.text.trim && content.text.trim()) return true;
+    if (content.media) return true;
+    const p = content.payload || content.message || null;
+    if (p) {
+      if (p.conversation) return true;
+      if (p.extendedTextMessage?.text) return true;
+      if (p.message?.conversation) return true;
+      if (p.message?.extendedTextMessage?.text) return true;
+    }
+    return false;
+  }, []);
+
   const dedupeMessages = useCallback((items = []) => {
     const sortValue = (m) => Number(new Date(m?.timestamp || m?.createdAt || 0).getTime()) || 0;
     const createdValue = (m) => Number(new Date(m?.createdAt || m?.timestamp || 0).getTime()) || 0;
@@ -156,6 +178,7 @@ const ChatView = () => {
     const map = new Map();
     for (const m of items) {
       if (!m) continue;
+      if (!hasRenderableContent(m) && m.status !== 'deleted') continue;
       const key = getMessageKey(m);
       const ts = sortValue(m);
       if (!map.has(key)) {
@@ -185,7 +208,7 @@ const ChatView = () => {
       if (ca !== cb) return ca - cb;
       return idValue(a) < idValue(b) ? -1 : idValue(a) > idValue(b) ? 1 : 0;
     });
-  }, [getMessageKey]);
+  }, [getMessageKey, hasRenderableContent]);
 
   const handleError = (err) => {
     let msg = err instanceof ApiError ? err.message : err?.message || 'Error';
@@ -548,12 +571,18 @@ const ChatView = () => {
   }, [searchParams]);
 
   useEffect(() => {
-    if (activeChat && !matchesTab(activeChat)) {
+    if (!activeChat) return;
+    if (role === 'AGENTE' && activeChat.status === 'CLOSED') {
+      setActiveChatId(null);
+      setActiveTab('OPEN');
+      return;
+    }
+    if (!matchesTab(activeChat)) {
       const status = activeChat.status;
       const target = status === 'UNASSIGNED' ? 'UNASSIGNED' : status === 'CLOSED' ? 'CLOSED' : 'OPEN';
       if (target !== activeTab) setActiveTab(target);
     }
-  }, [activeChat, activeTab, matchesTab]);
+  }, [activeChat, activeTab, matchesTab, role]);
 
   const handleLoadMoreMessages = useCallback(() => {
     const cid = activeChatIdRef.current;
@@ -581,12 +610,17 @@ const ChatView = () => {
       setChats((prev) =>
         prev
           .map((c) => (c.id === activeChatId ? { ...c, status: 'CLOSED' } : c))
-          .filter((c) => matchesTab(c) || c.id === activeChatId)
+          .filter((c) => (role === 'AGENTE' ? c.status !== 'CLOSED' : matchesTab(c) || c.id === activeChatId))
       );
-      setActiveTab('CLOSED');
+      if (role === 'AGENTE') {
+        setActiveChatId(null);
+        setActiveTab('OPEN');
+      } else {
+        setActiveTab('CLOSED');
+      }
       setSnackbar({ severity: 'success', message: 'Chat cerrado' });
       await loadChats();
-      await loadMessages(activeChatId);
+      if (role !== 'AGENTE') await loadMessages(activeChatId);
     } catch (err) {
       handleError(err);
     }
@@ -648,6 +682,37 @@ const ChatView = () => {
     }
   };
 
+  const handleDeleteMessage = (message) => {
+    if (!message) return;
+    setDeleteTarget(message);
+  };
+
+  const confirmDeleteMessage = async () => {
+    const target = deleteTarget;
+    if (!target) return;
+    const id = target.whatsappMessageId || target.id;
+    setModerating((prev) => ({ ...prev, delete: true }));
+    try {
+      const updated = await chatService.deleteMessage(id);
+      if (updated?.chatId) {
+        setMessages((prev) => {
+          const list = prev[updated.chatId] || [];
+          const next = list.map((m) =>
+            m.id === updated.id || m.whatsappMessageId === updated.whatsappMessageId ? { ...m, ...updated } : m
+          );
+          return { ...prev, [updated.chatId]: next };
+        });
+        await loadMessages(updated.chatId);
+      }
+      setSnackbar({ severity: 'success', message: 'Mensaje eliminado para cliente' });
+      setDeleteTarget(null);
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setModerating((prev) => ({ ...prev, delete: false }));
+    }
+  };
+
   const handleAssignToMe = async () => {
     if (!activeChatId) return;
     try {
@@ -677,17 +742,64 @@ const ChatView = () => {
       return typeof jid === 'string' && jid.endsWith('@g.us');
     };
 
-    const handleStatusUpdate = ({ chatId, whatsappMessageId, messageId, status, timestamp }) => {
+    const handleStatusUpdate = (payload = {}) => {
+      const data = payload.message || payload;
+      const chatId = data.chatId || payload.chatId;
+      const whatsappMessageId = data.whatsappMessageId || payload.whatsappMessageId;
+      const messageId = data.id || payload.messageId;
       if (!chatId || !(whatsappMessageId || messageId)) return;
+      const normalized = {
+        ...data,
+        deletedForRemote: data.status === 'deleted' ? true : data.deletedForRemote,
+        status: data.status || (data.deletedForRemote ? 'deleted' : data.status)
+      };
+      let needReload = false;
+      if (normalized.status === 'deleted') {
+        setMessages((prev) => {
+          const list = prev[chatId] || [];
+          let found = false;
+          const next = list.map((m) => {
+            if (m.whatsappMessageId === whatsappMessageId || m.id === messageId) {
+              found = true;
+              return { ...m, ...normalized };
+            }
+            return m;
+          });
+          if (!found) {
+            needReload = true;
+            return prev;
+          }
+          return { ...prev, [chatId]: dedupeMessages(next) };
+        });
+        if (needReload) loadMessages(chatId);
+        return;
+      }
       setMessages((prev) => {
         const list = prev[chatId] || [];
-        const next = list.map((m) =>
-          m.whatsappMessageId === whatsappMessageId || m.id === messageId
-            ? { ...m, status: status || m.status, timestamp: timestamp || m.timestamp }
-            : m
-        );
-        return { ...prev, [chatId]: next };
+        let found = false;
+        const next = list.map((m) => {
+          if (m.whatsappMessageId === whatsappMessageId || m.id === messageId) {
+            found = true;
+            return { ...m, ...normalized };
+          }
+          return m;
+        });
+        const hasContent =
+          normalized && normalized.content && Object.keys(normalized.content).length > 0;
+        const shouldAppend =
+          !found &&
+          hasContent &&
+          (normalized.id || normalized.whatsappMessageId);
+        if (shouldAppend) {
+          next.push({ ...normalized, timestamp: normalized.timestamp || normalized.createdAt || Date.now() });
+        } else if (!found) {
+          needReload = true;
+        }
+        return { ...prev, [chatId]: dedupeMessages(next) };
       });
+      if (needReload) {
+        loadMessages(chatId);
+      }
     };
 
     const isChatVisibleCurrent = (chat) => {
@@ -795,6 +907,13 @@ const ChatView = () => {
       if (target?.id) {
         setSnackbar({ severity: 'info', message: 'Chat cerrado por inactividad' });
       }
+      if (role === 'AGENTE') {
+        setChats((prev) => prev.filter((c) => c.id !== target?.id));
+        if (activeChatIdRef.current === target?.id) {
+          setActiveChatId(null);
+          setActiveTab('OPEN');
+        }
+      }
     });
 
     socket.on('chat:update', (chat) => {
@@ -816,10 +935,18 @@ const ChatView = () => {
       });
       if (!visible && activeChatIdRef.current === chat.id) {
         setActiveChatId(null);
+        if (role === 'AGENTE') setActiveTab('OPEN');
       }
-      // Si el chat activo cambia de estado, navega a la pestaña correcta
+      // Si el chat activo cambia de estado, navega a la pestaña correcta (no mover agentes a CLOSED)
       if (activeChatIdRef.current === chat.id && chat?.status) {
-        const targetTab = chat.status === 'UNASSIGNED' ? 'UNASSIGNED' : chat.status === 'CLOSED' ? 'CLOSED' : 'OPEN';
+        const targetTab =
+          role === 'AGENTE'
+            ? 'OPEN'
+            : chat.status === 'UNASSIGNED'
+              ? 'UNASSIGNED'
+              : chat.status === 'CLOSED'
+                ? 'CLOSED'
+                : 'OPEN';
         if (targetTab !== activeTabRef.current) {
           setActiveTab(targetTab);
         }
@@ -985,31 +1112,32 @@ const ChatView = () => {
             onLoadMore={() => loadChats(true)}
           />
         )}
-        <ChatWindow
-          chat={activeChat}
-          userId={user?.id}
-          messages={messages[activeChatId] || []}
-          onSend={handleSend}
-          sending={false}
-          loadingMessages={loadingMsgs}
-          role={role}
-          onAssignToMe={
-            role === 'ADMIN' || role === 'SUPERVISOR'
-              ? handleAssignToMe
-              : activeChat && !activeChat.assignedUserId
-              ? handleAssignToMe
-              : undefined
-          }
-          onReassign={canOpenReassign ? () => setShowReassign(true) : undefined}
-          onCloseChat={activeChat ? handleCloseChat : undefined}
-          quickReplyApi={quickReplyApi}
-          chatPanelProps={{
-            hasMore: hasMoreMap[activeChatId] || false,
-            loadingMore: messagesLoadingMap[activeChatId] || false,
-            onLoadMore: handleLoadMoreMessages,
-            autoScrollKey: scrollKey
-          }}
-        />
+      <ChatWindow
+        chat={activeChat}
+        userId={user?.id}
+        messages={messages[activeChatId] || []}
+        onSend={handleSend}
+        sending={false}
+        loadingMessages={loadingMsgs}
+        role={role}
+        onDeleteMessage={handleDeleteMessage}
+        onAssignToMe={
+          role === 'ADMIN' || role === 'SUPERVISOR'
+            ? handleAssignToMe
+            : activeChat && !activeChat.assignedUserId
+            ? handleAssignToMe
+            : undefined
+        }
+        onReassign={canOpenReassign ? () => setShowReassign(true) : undefined}
+        onCloseChat={activeChat ? handleCloseChat : undefined}
+        quickReplyApi={quickReplyApi}
+        chatPanelProps={{
+          hasMore: hasMoreMap[activeChatId] || false,
+          loadingMore: messagesLoadingMap[activeChatId] || false,
+          onLoadMore: handleLoadMoreMessages,
+          autoScrollKey: scrollKey
+        }}
+      />
       </Box>
       <Dialog open={newChatOpen} onClose={() => (!newChatLoading ? setNewChatOpen(false) : null)} fullWidth maxWidth="sm">
         <DialogTitle>Nuevo Chat</DialogTitle>
@@ -1129,6 +1257,22 @@ const ChatView = () => {
             }
           >
             {newChatLoading ? 'Procesando...' : 'Crear'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(deleteTarget)} onClose={() => (!moderating.delete ? setDeleteTarget(null) : null)} fullWidth maxWidth="xs">
+        <DialogTitle>Eliminar mensaje para el cliente</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2">
+            El mensaje se eliminará para el cliente en WhatsApp, pero seguirá visible para auditoría. ¿Confirmas?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={moderating.delete}>
+            Cancelar
+          </Button>
+          <Button onClick={confirmDeleteMessage} color="error" variant="contained" disabled={moderating.delete}>
+            {moderating.delete ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -83,7 +83,10 @@ const monitorTick = async () => {
   running = true;
   try {
     const settings = await getSystemSettings();
-    const autoCloseAfter = Number(settings.inactivityAutoCloseMinutes || 0);
+    const hours = Number.isFinite(settings.inactivityAutoCloseHours)
+      ? Number(settings.inactivityAutoCloseHours)
+      : Number(settings.inactivityAutoCloseMinutes || 0) / 60;
+    const autoCloseAfter = Math.max(0, Number(hours || 0) * 60); // minutos
     const autoCloseEnabled = Boolean(settings.inactivityAutoCloseEnabled);
     if (!autoCloseEnabled || autoCloseAfter <= 0) {
       running = false;

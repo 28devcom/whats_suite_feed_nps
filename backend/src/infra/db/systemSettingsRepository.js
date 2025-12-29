@@ -5,16 +5,20 @@ const DEFAULT_HISTORY_DAYS = Number(env.whatsapp?.historySyncDays || 30);
 
 const mapRowToSettings = (row) => {
   if (!row) {
-    return {
+    const defaults = {
       autoAssignEnabled: false,
       autoAssignIntervalSeconds: 30,
       maxChatsPerAgent: 10,
       gradualAssignmentEnabled: false,
       whatsappHistoryDays: DEFAULT_HISTORY_DAYS,
       inactivityAutoCloseEnabled: false,
-      inactivityAutoCloseHours: 2
+      inactivityAutoCloseHours: 72
     };
+    return { ...defaults, inactivityAutoCloseMinutes: defaults.inactivityAutoCloseHours * 60 };
   }
+  const rawMinutes = Number(row.inactivity_autoclose_minutes || 0);
+  const hours = rawMinutes > 0 ? rawMinutes / 60 : 72;
+  const safeHours = Math.min(Math.max(hours, 0), 90 * 24); // tope 90 días
   return {
     autoAssignEnabled: row.auto_assign_enabled,
     autoAssignIntervalSeconds: Number(row.auto_assign_interval_seconds || 30),
@@ -22,7 +26,8 @@ const mapRowToSettings = (row) => {
     gradualAssignmentEnabled: row.gradual_assignment_enabled,
     whatsappHistoryDays: Number(row.whatsapp_history_days || DEFAULT_HISTORY_DAYS),
     inactivityAutoCloseEnabled: Boolean(row.inactivity_autoclose_enabled),
-    inactivityAutoCloseHours: Number(row.inactivity_autoclose_minutes || 0) / 60
+    inactivityAutoCloseHours: safeHours,
+    inactivityAutoCloseMinutes: Math.round(safeHours * 60)
   };
 };
 
@@ -44,7 +49,7 @@ export const ensureSystemSettingsTable = async () => {
       inactivity_warning_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       inactivity_warning_minutes INTEGER NOT NULL DEFAULT 15,
       inactivity_autoclose_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-      inactivity_autoclose_minutes INTEGER NOT NULL DEFAULT 120,
+      inactivity_autoclose_minutes INTEGER NOT NULL DEFAULT 4320,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     );
@@ -55,11 +60,15 @@ export const ensureSystemSettingsTable = async () => {
     ADD COLUMN IF NOT EXISTS inactivity_warning_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS inactivity_warning_minutes INTEGER NOT NULL DEFAULT 15,
     ADD COLUMN IF NOT EXISTS inactivity_autoclose_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS inactivity_autoclose_minutes INTEGER NOT NULL DEFAULT 120;
+    ADD COLUMN IF NOT EXISTS inactivity_autoclose_minutes INTEGER NOT NULL DEFAULT 4320;
+  `);
+  await pool.query(`
+    ALTER TABLE system_settings
+      ALTER COLUMN inactivity_autoclose_minutes SET DEFAULT 4320;
   `);
   await pool.query(
     `INSERT INTO system_settings (id, auto_assign_enabled, auto_assign_interval_seconds, max_chats_per_agent, gradual_assignment_enabled, whatsapp_history_days, inactivity_warning_enabled, inactivity_warning_minutes, inactivity_autoclose_enabled, inactivity_autoclose_minutes)
-     VALUES (1, FALSE, 30, 10, FALSE, ${DEFAULT_HISTORY_DAYS}, FALSE, 15, FALSE, 120)
+     VALUES (1, FALSE, 30, 10, FALSE, ${DEFAULT_HISTORY_DAYS}, FALSE, 15, FALSE, 4320)
      ON CONFLICT (id) DO NOTHING`
   );
 };
@@ -71,7 +80,7 @@ export const upsertSystemSettings = async ({
   gradualAssignmentEnabled,
   whatsappHistoryDays = DEFAULT_HISTORY_DAYS,
   inactivityAutoCloseEnabled = false,
-  inactivityAutoCloseHours = 2
+  inactivityAutoCloseHours = 72
 }) => {
   const { rows } = await pool.query(
     `INSERT INTO system_settings (id, auto_assign_enabled, auto_assign_interval_seconds, max_chats_per_agent, gradual_assignment_enabled, whatsapp_history_days, inactivity_autoclose_enabled, inactivity_autoclose_minutes)
@@ -83,7 +92,7 @@ export const upsertSystemSettings = async ({
        COALESCE($4, false),
        COALESCE($5, ${DEFAULT_HISTORY_DAYS}),
        COALESCE($6, false),
-       COALESCE($7, 120)
+       COALESCE($7, 4320)
      )
      ON CONFLICT (id) DO UPDATE
        SET auto_assign_enabled = EXCLUDED.auto_assign_enabled,

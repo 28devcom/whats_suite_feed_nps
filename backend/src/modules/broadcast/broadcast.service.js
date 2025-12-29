@@ -136,8 +136,7 @@ const parseXlsxRecipients = (xlsxFile) => {
 const validateDelays = ({ delayMin, delayMax }) => {
   const minSeconds = Math.max(0, Number(delayMin) || 0);
   const maxSeconds = Math.max(minSeconds, Number(delayMax) || minSeconds);
-  // UI envía segundos, almacenamos en ms para compatibilidad con la cola
-  return { delayMinMs: minSeconds * 1000, delayMaxMs: maxSeconds * 1000 };
+  return { delayMinSeconds: minSeconds, delayMaxSeconds: maxSeconds };
 };
 
 const buildPayload = async ({ messageType, text, file, template }) => {
@@ -221,7 +220,7 @@ export const createBroadcastCampaignService = async ({
   }
   const type = messageType || template?.type;
   if (!['text', 'image', 'file', 'tts'].includes(type)) throw new AppError('Tipo de mensaje inválido', 400);
-  const { delayMinMs, delayMaxMs } = validateDelays({ delayMin, delayMax });
+  const { delayMinSeconds, delayMaxSeconds } = validateDelays({ delayMin, delayMax });
   const start = startAt ? new Date(startAt) : null;
   const stop = stopAt ? new Date(stopAt) : null;
   if (start && Number.isNaN(start.getTime())) throw new AppError('Fecha/hora de inicio inválida', 400);
@@ -254,8 +253,8 @@ export const createBroadcastCampaignService = async ({
     name,
     messageType: type,
     templateId: template?.id || null,
-    delayMinMs,
-    delayMaxMs,
+    delayMinSeconds,
+    delayMaxSeconds,
     connections: activeConnections,
     startAt: start || null,
     stopAt: stop || null,

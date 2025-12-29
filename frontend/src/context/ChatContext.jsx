@@ -77,9 +77,10 @@ export const ChatProvider = ({ children }) => {
     setLoadingConversations(true);
     try {
       const data = await sessionsService.listConversations();
-      setConversations(data);
-      if (!activeConversationId && data[0]?.id) {
-        setActiveConversationId(data[0].id);
+      const list = Array.isArray(data) ? data : [];
+      setConversations(list);
+      if (!activeConversationId && list[0]?.id) {
+        setActiveConversationId(list[0].id);
       }
     } finally {
       setLoadingConversations(false);

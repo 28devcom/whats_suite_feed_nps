@@ -78,9 +78,17 @@ export const handleIncomingWhatsAppMessage = async ({
     : messageTimestamp
     ? new Date(Number(messageTimestamp) * 1000)
     : new Date();
+  const normalizedText = sanitizeText(text);
+  const resolvedType = messageType || (content ? Object.keys(content)[0] || 'unknown' : 'unknown');
+  const hasRenderableContent = Boolean(normalizedText || media);
+  const isProtocolOnly = !hasRenderableContent && !!protocolType;
 
   // Mensajes enviados por nosotros mismos (broadcast/masivos) o históricos outbound: registrar en chat cerrado sin notificaciones.
   if (fromMe) {
+    if (isProtocolOnly) {
+      logger.debug({ sessionName, remoteNumber, messageId, tag: LOG_TAG }, 'Skipping protocol-only outbound message');
+      return null;
+    }
     let chat = await getChatBySessionAndRemote(sessionName, remoteNumber);
     if (!chat) {
       const historyQueue = await resolveQueueForSession(sessionName);
@@ -118,11 +126,11 @@ export const handleIncomingWhatsAppMessage = async ({
         messageId,
         remoteNumber,
         remoteJid,
-        text: sanitizeText(text),
+        text: normalizedText,
         payload: content,
         media
       },
-      messageType,
+      messageType: resolvedType,
       whatsappMessageId: messageId || null,
       timestamp: messageTime,
       whatsappSessionName: sessionName,
@@ -190,8 +198,11 @@ export const handleIncomingWhatsAppMessage = async ({
     }
   }
 
-  const normalizedText = sanitizeText(text);
-  const resolvedType = messageType || (content ? Object.keys(content)[0] || 'unknown' : 'unknown');
+  if (isProtocolOnly) {
+    logger.debug({ sessionName, remoteNumber, messageId, tag: LOG_TAG }, 'Skipping protocol-only inbound message');
+    return chat;
+  }
+
   const saved = await insertMessage({
     chatId: chat.id,
     direction: 'in',

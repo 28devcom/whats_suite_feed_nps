@@ -41,7 +41,7 @@ const Settings = () => {
     maxChatsPerAgent: 10,
     whatsappHistoryDays: 30,
     inactivityAutoCloseEnabled: false,
-    inactivityAutoCloseHours: 2
+    inactivityAutoCloseHours: 72
   });
 
   const loadSettings = async () => {
@@ -199,8 +199,8 @@ const Settings = () => {
                 label="Autocierre después de (horas)"
                 value={form.inactivityAutoCloseHours}
                 onChange={handleChange('inactivityAutoCloseHours')}
-                inputProps={{ min: 0 }}
-                helperText="Cerrar chat automáticamente tras inactividad."
+                inputProps={{ min: 0, max: 2160 }}
+                helperText="Cerrar chat automáticamente tras inactividad (máx. 90 días)."
                 fullWidth
               />
             </Stack>
