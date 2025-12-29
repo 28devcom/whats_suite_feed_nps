@@ -19,7 +19,14 @@ const STATUS_COLOR = {
 const ChatItem = ({ chat, selected, onSelect, unread = 0 }) => {
   const queueLabel = chat.queueName || chat.queue || 'Sin cola';
   const agentLabel = chat.assignedUserName || 'Sin asignar';
-  const statusColor = STATUS_COLOR[chat.status] || 'primary';
+  const connectionStatus = (chat.whatsappStatus || chat.whatsapp_status || '').toUpperCase();
+  const statusColor =
+    connectionStatus === 'CONNECTED'
+      ? 'success'
+      : connectionStatus === 'DISCONNECTED'
+        ? 'default'
+        : 'warning';
+  const connectionLabel = chat.whatsappSessionName || chat.whatsapp_session_name || 'Sin conexión';
 
   return (
     <ListItemButton
@@ -69,10 +76,10 @@ const ChatItem = ({ chat, selected, onSelect, unread = 0 }) => {
             />
           )}
 
-          {/* Estado */}
+          {/* Conexión (antes status) */}
           <Chip
             size="small"
-            label={chat.status || 'OPEN'}
+            label={connectionLabel}
             color={statusColor}
             sx={{ height: 18, fontSize: 11 }}
           />

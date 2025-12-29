@@ -101,6 +101,7 @@ const ChatView = () => {
   const activeChatIdRef = useRef(activeChatId);
   const userRef = useRef(user);
   const quickReplyCacheRef = useRef(new Map());
+  const [connectionStatusMap, setConnectionStatusMap] = useState({});
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [newChatForm, setNewChatForm] = useState({ sessionName: '', contact: '', queueId: '' });
   const [newChatLoading, setNewChatLoading] = useState(false);
@@ -139,6 +140,40 @@ const ChatView = () => {
   }, [token]);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [moderating, setModerating] = useState({ delete: false });
+
+  const applyConnectionStatusUpdates = useCallback((updates = {}) => {
+    const entries = Object.entries(updates || {}).filter(([session, status]) => session && status);
+    if (!entries.length) return;
+    const normalized = Object.fromEntries(entries);
+    setConnectionStatusMap((prev) => ({ ...prev, ...normalized }));
+    setChats((prev) =>
+      prev.map((c) => {
+        const session = c.whatsappSessionName || c.whatsapp_session_name || c.connectionId || null;
+        if (session && normalized[session]) {
+          return { ...c, whatsappStatus: normalized[session] };
+        }
+        return c;
+      })
+    );
+  }, []);
+
+  const refreshWhatsappStatuses = useCallback(async () => {
+    try {
+      const list = await whatsappService.listSessions();
+      const statusUpdates = {};
+      (list || []).forEach((s) => {
+        const session =
+          s.sessionName || s.session || s.session_name || s.id || s.name || s.sessionId || s.session_id || null;
+        const status = s.status || s.state || null;
+        if (session && status) statusUpdates[session] = status;
+      });
+      if (Object.keys(statusUpdates).length) {
+        applyConnectionStatusUpdates(statusUpdates);
+      }
+    } catch (_err) {
+      // Ignorar errores iniciales; el socket actualizará cuando haya eventos.
+    }
+  }, [applyConnectionStatusUpdates, whatsappService]);
 
   useEffect(() => {
     setDeleteTarget(null);
@@ -300,18 +335,29 @@ const ChatView = () => {
           : []
       }));
       setAvailableConnections(normalized.filter((c) => c.name));
+      const statusUpdates = {};
+      normalized.forEach((c) => {
+        if (c.name && c.status) statusUpdates[c.name] = c.status;
+      });
+      if (Object.keys(statusUpdates).length) {
+        applyConnectionStatusUpdates(statusUpdates);
+      }
     } catch (_err) {
       setAvailableConnections([]);
     } finally {
       setConnectionsLoading(false);
     }
-  }, [chatService]);
+  }, [chatService, applyConnectionStatusUpdates]);
 
   useEffect(() => {
     if (newChatOpen) {
       loadConnectionsCatalog();
     }
   }, [newChatOpen, loadConnectionsCatalog]);
+
+  useEffect(() => {
+    refreshWhatsappStatuses();
+  }, [refreshWhatsappStatuses]);
 
   useEffect(() => {
     const autoQueueId = connectionQueues.length === 1 ? connectionQueues[0].id : '';
@@ -347,7 +393,11 @@ const ChatView = () => {
     try {
       const chat = await chatService.createChat({ sessionName, contact, queueId });
       if (chat?.id) {
-        const normalized = normalizeChat(chat);
+        const connStatus = availableConnections.find((c) => c.name === sessionName)?.status || null;
+        const normalized = normalizeChat({ ...chat, whatsappStatus: chat.whatsappStatus || connStatus });
+        if (connStatus) {
+          applyConnectionStatusUpdates({ [sessionName]: connStatus });
+        }
         setChats((prev) => {
           const map = new Map(prev.map((c) => [c.id, c]));
           map.set(normalized.id, { ...map.get(normalized.id), ...normalized });
@@ -396,8 +446,11 @@ const ChatView = () => {
   const normalizeChat = useCallback((chat) => {
     if (!chat) return chat;
     const queueId = chat.queueId || chat.queue_id || chat.queue?.id || null;
-    return { ...chat, queueId };
-  }, []);
+    const sessionName = chat.whatsappSessionName || chat.whatsapp_session_name || chat.connectionId || null;
+    const whatsappStatus =
+      chat.whatsappStatus || chat.whatsapp_status || (sessionName ? connectionStatusMap[sessionName] : null);
+    return { ...chat, queueId, whatsappStatus, whatsappSessionName: sessionName };
+  }, [connectionStatusMap]);
 
   const loadAgentsAndConnections = useCallback(
     async (queueId) => {
@@ -452,18 +505,25 @@ const ChatView = () => {
         const filtered = shouldFilterSelf ? candidateAgents.filter((a) => a.id !== user.id) : candidateAgents;
         setAgents(filtered);
 
-        setConnections(
-          (connRes || []).map((c) => ({
-            sessionName: c.whatsapp_session_name || c.sessionName || c.name
-          }))
-        );
+        const normalizedConns = (connRes || []).map((c) => ({
+          sessionName: c.whatsapp_session_name || c.sessionName || c.name,
+          status: c.status || c.connectionStatus || c.whatsapp_status || null
+        }));
+        setConnections(normalizedConns);
+        const statusUpdates = {};
+        normalizedConns.forEach((c) => {
+          if (c.sessionName && c.status) statusUpdates[c.sessionName] = c.status;
+        });
+        if (Object.keys(statusUpdates).length) {
+          applyConnectionStatusUpdates(statusUpdates);
+        }
       } catch (err) {
         // ignore load errors; modal will show empty lists
         setAgents([]);
         setConnections([]);
       }
     },
-    [queueService, user?.id, user?.role]
+    [queueService, user?.id, user?.role, applyConnectionStatusUpdates]
   );
 
   const loadChats = async (append = false) => {
@@ -477,7 +537,18 @@ const ChatView = () => {
         cursor: append ? chatCursor : null,
         limit: 100
       });
-      const items = (data?.items || data || []).map(normalizeChat);
+      const itemsRaw = data?.items || data || [];
+      const items = itemsRaw.map(normalizeChat);
+      // Actualizar mapa de estado de conexión si viene en la respuesta
+      const statusUpdates = {};
+      itemsRaw.forEach((c) => {
+        const session = c.whatsappSessionName || c.whatsapp_session_name || c.connectionId || null;
+        const status = c.whatsappStatus || c.whatsapp_status || null;
+        if (session && status) statusUpdates[session] = status;
+      });
+      if (Object.keys(statusUpdates).length) {
+        applyConnectionStatusUpdates(statusUpdates);
+      }
       const visible = (items || []).filter((c) => isChatVisible(c) && (matchesTab(c) || c.id === activeChatId));
       setChatCursor(data?.nextCursor || null);
       if (append) {
@@ -922,6 +993,11 @@ const ChatView = () => {
         if (activeChatIdRef.current === chat.id) setActiveChatId(null);
         return;
       }
+      const sessionName = chat.whatsappSessionName || chat.whatsapp_session_name || chat.connectionId || null;
+      const sessionStatus = chat.whatsappStatus || chat.whatsapp_status || chat.connectionStatus || null;
+      if (sessionName && sessionStatus) {
+        applyConnectionStatusUpdates({ [sessionName]: sessionStatus });
+      }
       const visible = isChatVisibleCurrent(chat) && matchesTabCurrent(chat);
       setChats((prev) => {
         const exists = prev.find((c) => c.id === chat.id);
@@ -929,9 +1005,9 @@ const ChatView = () => {
           adjustSummary(exists.status, chat.status);
         }
         if (!visible) return prev.filter((c) => c.id !== chat.id);
-        if (exists) return prev.map((c) => (c.id === chat.id ? chat : c));
+        if (exists) return prev.map((c) => (c.id === chat.id ? normalizeChat(chat) : c));
         adjustSummary(null, chat.status);
-        return [chat, ...prev];
+        return [normalizeChat(chat), ...prev];
       });
       if (!visible && activeChatIdRef.current === chat.id) {
         setActiveChatId(null);
@@ -953,6 +1029,12 @@ const ChatView = () => {
       }
     });
 
+    const handleWhatsappStatus = (evt) => {
+      if (!evt?.sessionId || !evt?.status) return;
+      applyConnectionStatusUpdates({ [evt.sessionId]: evt.status });
+    };
+    socket.on('whatsapp:status', handleWhatsappStatus);
+
     socketRef.current = socket;
     return () => {
       socket.off('message:new', handleIncomingMessage);
@@ -961,8 +1043,9 @@ const ChatView = () => {
       socket.off('chat:new');
       socket.off('chat:update');
       socket.off('chat:auto-closed');
+      socket.off('whatsapp:status', handleWhatsappStatus);
     };
-  }, [token]);
+  }, [token, applyConnectionStatusUpdates]);
 
   return (
     <PageLayout title={null} subtitle={null}>
