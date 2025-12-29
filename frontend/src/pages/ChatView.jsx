@@ -843,7 +843,15 @@ const ChatView = () => {
       setSnackbar({ severity: 'success', message: 'Mensaje enviado' });
       return msg;
     } catch (err) {
-      handleError(err);
+      const connName = activeChat?.whatsappSessionName || activeChat?.whatsapp_session_name || 'N/D';
+      if (err instanceof ApiError && err.status >= 500) {
+        setSnackbar({
+          severity: 'error',
+          message: `Valida la página de conexiones para la conexión: ${connName}`
+        });
+      } else {
+        handleError(err);
+      }
       throw err;
     }
   };
