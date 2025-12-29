@@ -32,33 +32,30 @@ const decryptIfNeeded = (buffer) => {
 
 export const streamMediaController = async (req, res, next) => {
   try {
-    const user = req.user;
-    if (!user) throw new AppError('No autorizado', 401);
-
     const relPath = req.method === 'POST' ? req.body?.path : req.query.path;
     const sha = (req.method === 'POST' ? req.body?.sha : req.query.sha) || null;
     const sig = req.method === 'POST' ? req.body?.sig : req.query.sig;
     const exp = req.method === 'POST' ? req.body?.exp : req.query.exp;
+    const user = req.user;
+    if (!user) throw new AppError('No autorizado', 401);
+
     if (!relPath || typeof relPath !== 'string') throw new AppError('path requerido', 400);
     if (relPath.includes('..')) throw new AppError('Ruta inválida', 400);
     const signatureProvided = Boolean(sig || exp);
-    if (signatureProvided && !verifyMediaSignature({ path: relPath, sha256: sha || '', sig, exp })) {
-      throw new AppError('URL de media inválida o expirada', 403);
-    }
 
     const mediaRecord = await findMediaByRelativePath(relPath);
-    if (!mediaRecord) throw new AppError('Media no encontrada', 404);
-    const chat = await getChatById(mediaRecord.chatId);
-    if (!chat) throw new AppError('Chat no encontrado', 404);
-
-    // Control de acceso básico por rol/asignación/cola
-    if (user.role === ROLES.AGENTE) {
-      if (chat.assignedUserId && chat.assignedUserId !== user.id) {
-        throw new AppError('Acceso denegado', 403);
-      }
-      if (chat.queueId) {
-        const inQueue = await isUserInQueue(user.id, chat.queueId);
-        if (!inQueue) throw new AppError('Acceso denegado', 403);
+    if (mediaRecord) {
+      const chat = await getChatById(mediaRecord.chatId);
+      if (!chat) throw new AppError('Chat no encontrado', 404);
+      // Control de acceso básico por rol/asignación/cola
+      if (user.role === ROLES.AGENTE) {
+        if (chat.assignedUserId && chat.assignedUserId !== user.id) {
+          throw new AppError('Acceso denegado', 403);
+        }
+        if (chat.queueId) {
+          const inQueue = await isUserInQueue(user.id, chat.queueId);
+          if (!inQueue) throw new AppError('Acceso denegado', 403);
+        }
       }
     }
 
@@ -72,19 +69,19 @@ export const streamMediaController = async (req, res, next) => {
       throw err;
     }
 
-    const storedSha = mediaRecord.media?.sha256 || null;
+    const storedSha = mediaRecord?.media?.sha256 || null;
+    const effectiveSha = storedSha || sha || null;
     if (sha && storedSha && sha !== storedSha) throw new AppError('Hash no coincide', 400);
 
     // Decrypt if needed and validate hash against original content (not ciphertext)
     const dataBuffer = decryptIfNeeded(fileBuffer);
 
-    const expectedSha = storedSha || sha || null;
-    if (expectedSha) {
+    if (effectiveSha) {
       const hash = crypto.createHash('sha256').update(dataBuffer).digest('hex');
-      if (hash !== expectedSha) throw new AppError('Archivo alterado', 400);
+      if (hash !== effectiveSha) throw new AppError('Archivo alterado', 400);
     }
 
-    if (mediaRecord.media?.mimeType) {
+    if (mediaRecord?.media?.mimeType) {
       res.setHeader('Content-Type', mediaRecord.media.mimeType);
     }
     res.setHeader('Cache-Control', 'private, max-age=0');

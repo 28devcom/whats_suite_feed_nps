@@ -4,9 +4,12 @@ import {
   ListItemButton,
   Stack,
   Typography,
-  Box
+  Box,
+  Avatar
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 const STATUS_COLOR = {
   UNASSIGNED: 'warning',
@@ -16,7 +19,12 @@ const STATUS_COLOR = {
   BLOCKED: 'error'
 };
 
+const avatarCache = new Map();
+
 const ChatItem = ({ chat, selected, onSelect, unread = 0 }) => {
+  const { token } = useAuth();
+  const [resolvedAvatar, setResolvedAvatar] = useState(null);
+
   const queueLabel = chat.queueName || chat.queue || 'Sin cola';
   const agentLabel = chat.assignedUserName || 'Sin asignar';
   const connectionStatus = (chat.whatsappStatus || chat.whatsapp_status || '').toUpperCase();
@@ -27,6 +35,76 @@ const ChatItem = ({ chat, selected, onSelect, unread = 0 }) => {
         ? 'default'
         : 'warning';
   const connectionLabel = chat.whatsappSessionName || chat.whatsapp_session_name || 'Sin conexión';
+  const avatarUrl =
+    chat.contactAvatar ||
+    chat.remoteAvatar ||
+    chat.remote_avatar ||
+    chat.remoteProfilePic ||
+    chat.remote_profile_pic ||
+    chat.profilePic ||
+    chat.profile_pic ||
+    chat.profilePicUrl ||
+    chat.profile_pic_url ||
+    chat.avatar ||
+    null;
+  const avatarLabel = chat.remoteName || chat.remoteNumber || 'Contacto';
+
+  const mediaRequest = useMemo(() => {
+    if (!avatarUrl) return null;
+    const url = new URL(avatarUrl, window.location.origin);
+    if (!url.pathname.startsWith('/api/v1/media')) return { type: 'direct', url: avatarUrl };
+    const path = url.searchParams.get('path');
+    const sig = url.searchParams.get('sig');
+    const exp = url.searchParams.get('exp');
+    const sha = url.searchParams.get('sha');
+    if (!path) return { type: 'direct', url: avatarUrl };
+    return { type: 'api', key: avatarUrl, path, sig, exp, sha };
+  }, [avatarUrl]);
+
+  useEffect(() => {
+    const load = async () => {
+      if (!mediaRequest) {
+        setResolvedAvatar(null);
+        return;
+      }
+      if (mediaRequest.type === 'direct') {
+        setResolvedAvatar(mediaRequest.url);
+        return;
+      }
+      const cached = avatarCache.get(mediaRequest.key);
+      if (cached) {
+        setResolvedAvatar(cached);
+        return;
+      }
+      if (!token) {
+        setResolvedAvatar(null);
+        return;
+      }
+      try {
+        const resp = await fetch('/api/v1/media/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            path: mediaRequest.path,
+            sig: mediaRequest.sig,
+            exp: mediaRequest.exp,
+            sha: mediaRequest.sha
+          })
+        });
+        if (!resp.ok) throw new Error('media fetch failed');
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        avatarCache.set(mediaRequest.key, objectUrl);
+        setResolvedAvatar(objectUrl);
+      } catch (_err) {
+        setResolvedAvatar(null);
+      }
+    };
+    load();
+  }, [mediaRequest, token]);
 
   return (
     <ListItemButton
@@ -48,64 +126,81 @@ const ChatItem = ({ chat, selected, onSelect, unread = 0 }) => {
         }
       })}
     >
-      {/* Contenido */}
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        {/* Línea 1 */}
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography
-            variant="body2"
-            fontWeight={600}
-            noWrap
-            sx={{ flex: 1 }}
-          >
-            {chat.remoteNumber || 'Sin número'}
-          </Typography>
-
-          {/* Unread */}
-          {unread > 0 && (
-            <Badge
-              color="primary"
-              badgeContent={unread}
-              sx={{
-                '& .MuiBadge-badge': {
-                  fontSize: 11,
-                  height: 16,
-                  minWidth: 16
-                }
-              }}
-            />
-          )}
-
-          {/* Conexión (antes status) */}
-          <Chip
-            size="small"
-            label={connectionLabel}
-            color={statusColor}
-            sx={{ height: 18, fontSize: 11 }}
-          />
-        </Stack>
-
-        {/* Línea 2 */}
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          noWrap
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ width: '100%' }}>
+        <Avatar
+          src={resolvedAvatar || undefined}
+          alt={avatarLabel}
+          sx={(theme) => ({
+            width: 36,
+            height: 36,
+            bgcolor: avatarUrl ? theme.palette.background.paper : theme.palette.primary.light,
+            color: avatarUrl ? theme.palette.text.primary : theme.palette.primary.contrastText,
+            fontWeight: 700,
+            border: `1px solid ${theme.palette.divider}`
+          })}
         >
-          {queueLabel} · {agentLabel}
-        </Typography>
+          {avatarLabel?.[0]?.toUpperCase() || 'C'}
+        </Avatar>
 
-        {/* Segmento opcional */}
-        {chat.metadata?.segment && (
+        {/* Contenido */}
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          {/* Línea 1 */}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography
+              variant="body2"
+              fontWeight={600}
+              noWrap
+              sx={{ flex: 1 }}
+            >
+              {chat.remoteNumber || 'Sin número'}
+            </Typography>
+
+            {/* Unread */}
+            {unread > 0 && (
+              <Badge
+                color="primary"
+                badgeContent={unread}
+                sx={{
+                  '& .MuiBadge-badge': {
+                    fontSize: 11,
+                    height: 16,
+                    minWidth: 16
+                  }
+                }}
+              />
+            )}
+
+            {/* Conexión (antes status) */}
+            <Chip
+              size="small"
+              label={connectionLabel}
+              color={statusColor}
+              sx={{ height: 18, fontSize: 11 }}
+            />
+          </Stack>
+
+          {/* Línea 2 */}
           <Typography
             variant="caption"
             color="text.secondary"
-            sx={{ opacity: 0.7 }}
             noWrap
           >
-            {chat.metadata.segment}
+            {queueLabel} · {agentLabel}
           </Typography>
-        )}
-      </Box>
+
+          {/* Segmento opcional */}
+          {chat.metadata?.segment && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ opacity: 0.7 }}
+              noWrap
+            >
+              {chat.metadata.segment}
+            </Typography>
+          )}
+        </Box>
+      </Stack>
     </ListItemButton>
   );
 };

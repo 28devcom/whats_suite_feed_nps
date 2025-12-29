@@ -20,7 +20,8 @@ const ensureChatSchema = async () => {
       ADD COLUMN IF NOT EXISTS is_muted BOOLEAN DEFAULT FALSE,
       ADD COLUMN IF NOT EXISTS inactivity_warning_sent_at TIMESTAMPTZ NULL,
       ADD COLUMN IF NOT EXISTS inactivity_warning_delivered_at TIMESTAMPTZ NULL,
-      ADD COLUMN IF NOT EXISTS inactivity_warning_for_ts TIMESTAMPTZ NULL;
+      ADD COLUMN IF NOT EXISTS inactivity_warning_for_ts TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS remote_avatar_url TEXT;
   `);
   chatSchemaEnsured = true;
 };
@@ -60,6 +61,10 @@ const mapChat = (row) => ({
   whatsappSessionName: row.whatsapp_session_name,
   remoteNumber: row.remote_number,
   remoteJid: row.remote_jid,
+  contactAvatar: row.remote_avatar_url,
+  remoteAvatar: row.remote_avatar_url,
+  remoteProfilePic: row.remote_avatar_url,
+  profilePic: row.remote_avatar_url,
   queueId: row.queue_id,
   queueName: row.queue_name,
   tenantId: row.tenant_id,
@@ -78,6 +83,7 @@ const mapChat = (row) => ({
   inactivityWarningForTs: row.inactivity_warning_for_ts,
   contactName: row.contact_name,
   pushName: row.push_name,
+  contactAvatar: row.remote_avatar_url,
   isArchived: row.is_archived,
   isMuted: row.is_muted,
   createdAt: row.created_at,
@@ -242,6 +248,7 @@ export const createChatRecord = async ({
   tenantId = null,
   contactName = null,
   pushName = null,
+  contactAvatar = null,
   isArchived = false,
   isMuted = false
 }) => {
@@ -252,8 +259,8 @@ export const createChatRecord = async ({
     resolvedTenantId = tenantRes.rows[0]?.id || null;
   }
   const { rows } = await pool.query(
-    `INSERT INTO chats (whatsapp_session_name, remote_number, remote_jid, queue_id, status, last_message_at, tenant_id, contact_name, push_name, is_archived, is_muted)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO chats (whatsapp_session_name, remote_number, remote_jid, queue_id, status, last_message_at, tenant_id, contact_name, push_name, is_archived, is_muted, remote_avatar_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (whatsapp_session_name, remote_number) DO UPDATE
        SET queue_id = COALESCE(EXCLUDED.queue_id, chats.queue_id),
            status = EXCLUDED.status,
@@ -261,6 +268,7 @@ export const createChatRecord = async ({
            last_message_at = EXCLUDED.last_message_at,
            contact_name = COALESCE(EXCLUDED.contact_name, chats.contact_name),
            push_name = COALESCE(EXCLUDED.push_name, chats.push_name),
+           remote_avatar_url = COALESCE(EXCLUDED.remote_avatar_url, chats.remote_avatar_url),
            is_archived = EXCLUDED.is_archived,
            is_muted = EXCLUDED.is_muted,
            updated_at = NOW()
@@ -276,7 +284,8 @@ export const createChatRecord = async ({
       contactName,
       pushName,
       isArchived,
-      isMuted
+      isMuted,
+      contactAvatar
     ]
   );
   const chat = rows[0] ? mapChat(rows[0]) : null;
@@ -293,6 +302,7 @@ export const touchChatOnInbound = async ({
   lastMessageAt,
   contactName = null,
   pushName = null,
+  contactAvatar = null,
   isArchived = null,
   isMuted = null
 }) => {
@@ -306,6 +316,10 @@ export const touchChatOnInbound = async ({
   if (pushName) {
     params.push(pushName);
     setExtra += `, push_name = $${params.length}`;
+  }
+  if (contactAvatar) {
+    params.push(contactAvatar);
+    setExtra += `, remote_avatar_url = COALESCE($${params.length}, remote_avatar_url)`;
   }
   if (typeof isArchived === 'boolean') {
     params.push(isArchived);

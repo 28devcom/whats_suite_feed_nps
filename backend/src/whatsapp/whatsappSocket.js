@@ -18,6 +18,7 @@ import {
   findSessionByName,
   updateSessionSyncTracking
 } from '../infra/db/whatsappSessionRepository.js';
+import { buildMediaUrl } from '../shared/mediaUrl.js';
 
 const buildSocketLogger = () => pino({ level: 'silent' });
 
@@ -51,6 +52,7 @@ const historyQueue = createWorkerQueue({
   logger
 });
 const RESYNC_BATCH = 40;
+const avatarCache = new Map();
 
 const unwrapMessage = (message) => {
   let current = message;
@@ -489,6 +491,7 @@ export const createWhatsAppSocket = async (
         const remoteNumber = normalizeRemoteJid(normalizedJid);
         const selfJid = sessionContext.selfJid ? jidNormalizedUser(sessionContext.selfJid) : null;
         const selfDigits = sessionContext.selfNumber || digitsOnly(sessionName);
+        const avatarCacheKey = normalizedJid ? `${sessionName}:${normalizedJid}` : null;
 
         if (!msg) {
           logDiscard({ reason: 'null_message' });
@@ -610,6 +613,35 @@ export const createWhatsAppSocket = async (
           'Inbound WhatsApp message parsed'
         );
 
+        let contactAvatar = null;
+        if (avatarCacheKey) {
+          const cached = avatarCache.get(avatarCacheKey);
+          const now = Date.now();
+          const ttlMs = 30 * 60 * 1000; // 30 minutos para evitar golpes excesivos
+          if (cached && now - cached.ts < ttlMs) {
+            contactAvatar = cached.url;
+          } else if (sock?.profilePictureUrl) {
+            try {
+              const url = await sock.profilePictureUrl(normalizedJid, 'image');
+              if (url) {
+                const resp = await fetch(url);
+                if (resp.ok) {
+                  const buffer = Buffer.from(await resp.arrayBuffer());
+                  const mimeType = resp.headers.get('content-type') || 'image/jpeg';
+                  const media = await saveMediaBuffer({ buffer, mimeType });
+                  contactAvatar = buildMediaUrl(media);
+                } else {
+                  contactAvatar = url; // fallback público si no pudimos descargar
+                }
+              }
+              avatarCache.set(avatarCacheKey, { url: contactAvatar, ts: now });
+            } catch (err) {
+              avatarCache.set(avatarCacheKey, { url: null, ts: now });
+              logger.debug({ err: err?.message, sessionName, remoteJid: normalizedJid, tag: LOG_TAG }, 'Unable to fetch profile picture');
+            }
+          }
+        }
+
         await events.emit('message', {
           sessionName,
           remoteNumber,
@@ -624,6 +656,7 @@ export const createWhatsAppSocket = async (
           media: mediaMeta,
           tenantId: sessionContext.tenantId,
           contactName: pushName,
+          contactAvatar,
           pushName,
           isArchived: false,
           isMuted: false,

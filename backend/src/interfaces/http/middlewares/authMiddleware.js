@@ -38,6 +38,8 @@ export const authorize = (...roles) => (req, _res, next) => {
   return next();
 };
 
+// Se mantiene autenticación obligatoria para rutas protegidas; las rutas públicas deben evitar este middleware.
+
 export const authorizeDashboard = (req, _res, next) => {
   if (!req.user) return next(new AppError('No autorizado', 401));
   if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPERVISOR') {

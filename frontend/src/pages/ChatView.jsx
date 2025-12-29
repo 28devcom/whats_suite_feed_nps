@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
+  Autocomplete,
   Chip,
   CircularProgress,
   Snackbar,
@@ -13,6 +14,7 @@ import {
   InputAdornment,
   IconButton,
   Button,
+  Avatar,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -88,6 +90,8 @@ const ChatView = () => {
   const [summary, setSummary] = useState({ OPEN: 0, UNASSIGNED: 0, CLOSED: 0 });
   const [activeTab, setActiveTab] = useState('OPEN');
   const [searchParams] = useSearchParams();
+  const [queueFilter, setQueueFilter] = useState([]);
+  const [userFilter, setUserFilter] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [chatCursor, setChatCursor] = useState(null);
   const [loadingMoreChats, setLoadingMoreChats] = useState(false);
@@ -431,6 +435,58 @@ const ChatView = () => {
     return chat.status === 'OPEN';
   };
 
+  const queueFilterOptions = useMemo(() => {
+    const map = new Map();
+    chats.forEach((c) => {
+      const id = c.queueId || 'none';
+      const name = c.queueName || c.queue?.name || (id === 'none' ? 'Sin cola' : 'Cola');
+      if (!map.has(id)) {
+        map.set(id, { id, name });
+      }
+    });
+    return Array.from(map.values());
+  }, [chats]);
+
+  const userFilterOptions = useMemo(() => {
+    const map = new Map();
+    let hasUnassigned = false;
+    chats.forEach((c) => {
+      const id = c.assignedUserId || c.assignedAgentId || null;
+      const name =
+        c.assignedUserName ||
+        c.assignedAgentName ||
+        c.assignedUserEmail ||
+        c.assignedAgentEmail ||
+        (id ? 'Agente' : 'Sin asignar');
+      const avatar = c.assignedUserAvatar || c.assignedAgentAvatar || null;
+      if (id) {
+        map.set(id, { id, name, avatar });
+      } else {
+        hasUnassigned = true;
+      }
+    });
+    if (hasUnassigned) {
+      map.set('unassigned', { id: 'unassigned', name: 'Sin asignar' });
+    }
+    return Array.from(map.values());
+  }, [chats]);
+
+  const filteredChats = useMemo(() => {
+    if (role === 'AGENTE') return chats;
+    const applyFilters = (chat) => {
+      if (queueFilter.length) {
+        const qKey = chat.queueId || 'none';
+        if (!queueFilter.includes(qKey)) return false;
+      }
+      if (userFilter.length) {
+        const uKey = chat.assignedUserId || chat.assignedAgentId || 'unassigned';
+        if (!userFilter.includes(uKey)) return false;
+      }
+      return true;
+    };
+    return chats.filter(applyFilters);
+  }, [chats, queueFilter, userFilter, role]);
+
   const adjustSummary = useCallback((prevStatus, newStatus) => {
     const norm = (s) => (s || '').toUpperCase();
     const prev = norm(prevStatus);
@@ -449,7 +505,33 @@ const ChatView = () => {
     const sessionName = chat.whatsappSessionName || chat.whatsapp_session_name || chat.connectionId || null;
     const whatsappStatus =
       chat.whatsappStatus || chat.whatsapp_status || (sessionName ? connectionStatusMap[sessionName] : null);
-    return { ...chat, queueId, whatsappStatus, whatsappSessionName: sessionName };
+    const contactAvatar =
+      chat.remoteAvatar ||
+      chat.remote_avatar ||
+      chat.remoteProfilePic ||
+      chat.remote_profile_pic ||
+      chat.remoteProfilePicUrl ||
+      chat.remote_profile_pic_url ||
+      chat.profilePic ||
+      chat.profile_pic ||
+      chat.profilePicUrl ||
+      chat.profile_pic_url ||
+      chat.contactAvatar ||
+      chat.contact_avatar ||
+      chat.contactPhoto ||
+      chat.contact_photo ||
+      chat.contactPhotoUrl ||
+      chat.contact_photo_url ||
+      chat.contactImage ||
+      chat.contact_image ||
+      chat.contactImageUrl ||
+      chat.contact_image_url ||
+      chat.contactPicture ||
+      chat.contact_picture ||
+      chat.picture ||
+      chat.avatar ||
+      null;
+    return { ...chat, queueId, whatsappStatus, whatsappSessionName: sessionName, contactAvatar };
   }, [connectionStatusMap]);
 
   const loadAgentsAndConnections = useCallback(
@@ -640,6 +722,19 @@ const ChatView = () => {
       setActiveChatId(chatIdParam);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!activeChatId) return;
+    const stillVisible = chats.some((c) => c.id === activeChatId);
+    if (!stillVisible) setActiveChatId(null);
+  }, [chats, activeChatId]);
+
+  useEffect(() => {
+    if (role === 'AGENTE') return;
+    if (!activeChatId) return;
+    const visible = filteredChats.some((c) => c.id === activeChatId);
+    if (!visible) setActiveChatId(null);
+  }, [filteredChats, activeChatId, role]);
 
   useEffect(() => {
     if (!activeChat) return;
@@ -914,17 +1009,18 @@ const ChatView = () => {
       let statusChange = null;
 
       if (chat) {
-        const visible = isChatVisibleCurrent(chat) && matchesTabCurrent(chat);
+        const normalizedChat = normalizeChat(chat);
+        const visible = isChatVisibleCurrent(normalizedChat) && matchesTabCurrent(normalizedChat);
         setChats((prev) => {
-          if (!visible) return prev.filter((c) => c.id !== chat.id);
-          const exists = prev.find((c) => c.id === chat.id);
-          statusChange = { prev: exists?.status, next: chat.status };
-          if (exists) return prev.map((c) => (c.id === chat.id ? chat : c));
-          return [chat, ...prev];
+          if (!visible) return prev.filter((c) => c.id !== normalizedChat.id);
+          const exists = prev.find((c) => c.id === normalizedChat.id);
+          statusChange = { prev: exists?.status, next: normalizedChat.status };
+          if (exists) return prev.map((c) => (c.id === normalizedChat.id ? { ...c, ...normalizedChat } : c));
+          return [normalizedChat, ...prev];
         });
         if (!visible) {
           allowed = false;
-          if (currentActiveChatId === chat.id) setActiveChatId(null);
+          if (currentActiveChatId === normalizedChat.id) setActiveChatId(null);
         }
       } else {
         setChats((prev) => {
@@ -965,11 +1061,12 @@ const ChatView = () => {
     socket.on('message:update', handleStatusUpdate);
 
     socket.on('chat:new', (chat) => {
-      if (chat?.status) adjustSummary(null, chat.status);
-      if (!isChatVisibleCurrent(chat) || !matchesTabCurrent(chat)) return;
+      const normalizedChat = normalizeChat(chat);
+      if (normalizedChat?.status) adjustSummary(null, normalizedChat.status);
+      if (!isChatVisibleCurrent(normalizedChat) || !matchesTabCurrent(normalizedChat)) return;
       setChats((prev) => {
-        if (prev.find((c) => c.id === chat.id)) return prev;
-        return [chat, ...prev];
+        if (prev.find((c) => c.id === normalizedChat.id)) return prev;
+        return [normalizedChat, ...prev];
       });
     });
 
@@ -1154,8 +1251,42 @@ const ChatView = () => {
                 </InputAdornment>
               )
             }}
-            sx={{ minWidth: { xs: '100%', md: 260 } }}
+            sx={{ minWidth: { xs: '100%', md: 220 } }}
           />
+          {(role === 'ADMIN' || role === 'SUPERVISOR') && (
+            <>
+              <Autocomplete
+                multiple
+                size="small"
+                options={queueFilterOptions}
+                value={queueFilterOptions.filter((opt) => queueFilter.includes(opt.id))}
+                onChange={(_e, val) => setQueueFilter(val.map((v) => v.id))}
+                getOptionLabel={(option) => option.name || ''}
+                isOptionEqualToValue={(opt, val) => opt.id === val.id}
+                sx={{ minWidth: { xs: '100%', md: 180 } }}
+                renderInput={(params) => <TextField {...params} label="Filtrar por cola" placeholder="Colas" />}
+              />
+              <Autocomplete
+                multiple
+                size="small"
+                options={userFilterOptions}
+                value={userFilterOptions.filter((opt) => userFilter.includes(opt.id))}
+                onChange={(_e, val) => setUserFilter(val.map((v) => v.id))}
+                getOptionLabel={(option) => option.name || ''}
+                isOptionEqualToValue={(opt, val) => opt.id === val.id}
+                sx={{ minWidth: { xs: '100%', md: 200 } }}
+                renderOption={(props, option) => (
+                  <Box component="li" {...props} key={option.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar src={option.avatar || undefined} alt={option.name} sx={{ width: 28, height: 28 }}>
+                      {(option.name || 'U')?.[0]?.toUpperCase()}
+                    </Avatar>
+                    <Typography variant="body2">{option.name}</Typography>
+                  </Box>
+                )}
+                renderInput={(params) => <TextField {...params} label="Filtrar por usuario" placeholder="Agentes" />}
+              />
+            </>
+          )}
           <Button
             variant="contained"
             startIcon={<AddCircleOutlineIcon />}
@@ -1185,7 +1316,7 @@ const ChatView = () => {
           </Box>
         ) : (
           <ChatInbox
-            chats={chats}
+            chats={filteredChats}
             activeId={activeChatId}
             unreadCounts={unread}
             onSelect={(c) => setActiveChatId(c.id)}

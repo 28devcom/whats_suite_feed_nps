@@ -3,14 +3,8 @@ import { apiClient } from '../api/client.js';
 export const createSessionsService = ({ getToken, onUnauthorized }) => {
   const client = apiClient(getToken, { onUnauthorized });
 
-  const listConversations = async () => {
-    try {
-      return await client.request('/messaging/conversations');
-    } catch (err) {
-      if (err?.status === 404) return [];
-      throw err;
-    }
-  };
+  // Endpoint no disponible actualmente; devolvemos lista vacía para evitar 404 en consola.
+  const listConversations = async () => [];
 
   const listMessages = async (conversationId, cursor) => {
     const params = new URLSearchParams({ conversationId });

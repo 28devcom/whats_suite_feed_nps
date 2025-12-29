@@ -49,6 +49,7 @@ export const handleIncomingWhatsAppMessage = async ({
   fromMe = false,
   tenantId = null,
   contactName = null,
+  contactAvatar = null,
   pushName = null,
   isArchived = false,
   isMuted = false,
@@ -98,6 +99,7 @@ export const handleIncomingWhatsAppMessage = async ({
         remoteJid,
         tenantId,
         contactName,
+        contactAvatar,
         pushName,
         isArchived,
         isMuted,
@@ -114,6 +116,7 @@ export const handleIncomingWhatsAppMessage = async ({
         status: nextStatus,
         lastMessageAt: messageTime,
         contactName,
+        contactAvatar,
         pushName,
         isArchived,
         isMuted
@@ -169,6 +172,7 @@ export const handleIncomingWhatsAppMessage = async ({
         remoteJid,
         tenantId,
         contactName,
+        contactAvatar,
         pushName,
         isArchived,
         isMuted,
@@ -186,9 +190,10 @@ export const handleIncomingWhatsAppMessage = async ({
       status: nextStatus,
       lastMessageAt: messageTime,
       contactName,
-        pushName,
-        isArchived,
-        isMuted
+      contactAvatar,
+      pushName,
+      isArchived,
+      isMuted
       });
     if (!chat.queueId && queueId) {
       chat = await setChatQueue(chat.id, queueId);

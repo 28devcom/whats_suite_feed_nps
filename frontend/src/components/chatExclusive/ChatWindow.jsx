@@ -5,7 +5,8 @@ import {
   Stack,
   Typography,
   Chip,
-  Button
+  Button,
+  Avatar
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
@@ -16,6 +17,7 @@ import ImagePreviewModal from './ImagePreviewModal.jsx';
 import VideoPreviewModal from './VideoPreviewModal.jsx';
 import QuickReplyComposer from './QuickReplyComposer.jsx';
 import QuickReplySuggestions from './QuickReplySuggestions.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 /* =========================
    CONSTANTES
@@ -100,6 +102,24 @@ const ChatWindow = ({
   const [qrSuggestions, setQrSuggestions] = useState([]);
   const [qrQuery, setQrQuery] = useState('');
   const [qrLoading, setQrLoading] = useState(false);
+  const { token } = useAuth();
+  const avatarCache = useRef(new Map());
+  const [resolvedAvatar, setResolvedAvatar] = useState(null);
+  const contactName = chat?.remoteName || chat?.remoteNumber || 'Contacto';
+  const contactAvatar =
+    chat?.contactAvatar ||
+    chat?.remoteAvatar ||
+    chat?.remote_avatar ||
+    chat?.remoteProfilePic ||
+    chat?.remote_profile_pic ||
+    chat?.remoteProfilePicUrl ||
+    chat?.remote_profile_pic_url ||
+    chat?.profilePic ||
+    chat?.profile_pic ||
+    chat?.profilePicUrl ||
+    chat?.profile_pic_url ||
+    chat?.avatar ||
+    null;
   const quickReplyCacheRef = useRef(new Map());
   const qrTimerRef = useRef(null);
   const [sendingQuickReply, setSendingQuickReply] = useState(false);
@@ -112,6 +132,56 @@ const ChatWindow = ({
     setText('');
     setFiles([]);
   }, [chat?.id]);
+
+  useEffect(() => {
+    const resolveAvatar = async () => {
+      if (!contactAvatar) {
+        setResolvedAvatar(null);
+        return;
+      }
+      const urlObj = new URL(contactAvatar, window.location.origin);
+      if (!urlObj.pathname.startsWith('/api/v1/media')) {
+        setResolvedAvatar(contactAvatar);
+        return;
+      }
+      const key = contactAvatar;
+      const cached = avatarCache.current.get(key);
+      if (cached) {
+        setResolvedAvatar(cached);
+        return;
+      }
+      if (!token) {
+        setResolvedAvatar(null);
+        return;
+      }
+      const path = urlObj.searchParams.get('path');
+      const sig = urlObj.searchParams.get('sig');
+      const exp = urlObj.searchParams.get('exp');
+      const sha = urlObj.searchParams.get('sha');
+      if (!path) {
+        setResolvedAvatar(null);
+        return;
+      }
+      try {
+        const resp = await fetch('/api/v1/media/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ path, sig, exp, sha })
+        });
+        if (!resp.ok) throw new Error('media fetch failed');
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        avatarCache.current.set(key, objectUrl);
+        setResolvedAvatar(objectUrl);
+      } catch (_err) {
+        setResolvedAvatar(null);
+      }
+    };
+    resolveAvatar();
+  }, [contactAvatar, token]);
 
   /* =========================
      PERMISOS
@@ -470,6 +540,20 @@ const ChatWindow = ({
           bgcolor: statusBg(theme, chat.status)
         })}
       >
+        <Avatar
+          src={resolvedAvatar || undefined}
+          alt={contactName}
+          sx={(theme) => ({
+            width: 40,
+            height: 40,
+            bgcolor: contactAvatar ? theme.palette.background.paper : theme.palette.primary.light,
+            color: contactAvatar ? theme.palette.text.primary : theme.palette.primary.contrastText,
+            fontWeight: 700,
+            border: `1px solid ${theme.palette.divider}`
+          })}
+        >
+          {contactName?.[0]?.toUpperCase() || 'C'}
+        </Avatar>
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="body2" fontWeight={700} noWrap>
             {chat.remoteNumber}
@@ -482,8 +566,7 @@ const ChatWindow = ({
               variant="outlined"
             />
             <Typography variant="caption" color="text.secondary">
-              {chat.queueName || 'Sin cola'} ·{' '}
-              {chat.assignedUserName || 'Sin asignar'}
+              {chat.queueName || 'Sin cola'} · {chat.assignedUserName || chat.assignedAgentName || 'Sin asignar'}
             </Typography>
           </Stack>
         </Box>
