@@ -22,6 +22,7 @@ import metricsRoutes from './metricsRoutes.js';
 import dashboardRoutes from '../../../modules/dashboard/dashboard.routes.js';
 import broadcastRoutes from '../../../modules/broadcast/broadcast.routes.js';
 import quickReplyRoutes from '../../../modules/quickReplies/quickReply.routes.js';
+import contactRoutes from './contactRoutes.js';
 import { apiVersionHeader } from '../middlewares/apiVersion.js';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { audit } from '../middlewares/auditMiddleware.js';
@@ -60,5 +61,6 @@ router.use('/metrics', metricsRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/broadcast', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), broadcastRoutes);
 router.use('/quick-replies', quickReplyRoutes);
+router.use('/contacts', contactRoutes);
 
 export default router;

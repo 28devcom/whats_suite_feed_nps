@@ -32,6 +32,7 @@ import PageLayout from '../components/PageLayout.jsx';
 import ChatInbox from '../components/chatExclusive/ChatInbox.jsx';
 import ChatWindow from '../components/chatExclusive/ChatWindow.jsx';
 import ReassignModal from '../components/chatExclusive/ReassignModal.jsx';
+import ContactInfoModal from '../components/chatExclusive/ContactInfoModal.jsx';
 import createChatService from '../services/chat.service.js';
 import createQueueMembershipService from '../services/queueMembership.service.js';
 import { createWhatsappService } from '../services/whatsapp.service.js';
@@ -39,6 +40,8 @@ import createQuickRepliesService from '../services/quickReplies.service.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { ApiError } from '../api/client.js';
 import { getEventsSocket } from '../lib/eventsSocket.js';
+import createContactsApi from '../api/contacts.api.js';
+import { normalizePhoneNumber } from '../utils/phone.js';
 
 const ChatView = () => {
   const { token, logout, user } = useAuth();
@@ -74,11 +77,20 @@ const ChatView = () => {
       }),
     [token, logout]
   );
+  const contactsApi = useMemo(
+    () =>
+      createContactsApi({
+        getToken: () => token,
+        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+      }),
+    [token, logout]
+  );
 
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState({});
   const [unread, setUnread] = useState({});
+  const [contactBook, setContactBook] = useState({});
   const [loading, setLoading] = useState(false);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [snackbar, setSnackbar] = useState(null);
@@ -111,6 +123,7 @@ const ChatView = () => {
   const [newChatLoading, setNewChatLoading] = useState(false);
   const [availableConnections, setAvailableConnections] = useState([]);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const contactLoadingRef = useRef(new Set());
   const selectedConnection = useMemo(
     () => availableConnections.find((c) => c.name === newChatForm.sessionName) || null,
     [availableConnections, newChatForm.sessionName]
@@ -118,7 +131,6 @@ const ChatView = () => {
   const connectionQueues = useMemo(() => selectedConnection?.queues || [], [selectedConnection]);
 
   const activeChat = useMemo(() => chats.find((c) => c.id === activeChatId), [chats, activeChatId]);
-
   const isActiveChatMine = useMemo(() => {
     if (!activeChat || !user?.id) return false;
     return activeChat.assignedUserId === user.id || activeChat.assignedAgentId === user.id;
@@ -142,8 +154,16 @@ const ChatView = () => {
   useEffect(() => {
     quickReplyCacheRef.current.clear();
   }, [token]);
+  useEffect(() => {
+    setContactBook({});
+    contactLoadingRef.current = new Set();
+  }, [token]);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [moderating, setModerating] = useState({ delete: false });
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [contactModalError, setContactModalError] = useState('');
+  const [contactModalAvatar, setContactModalAvatar] = useState(null);
+  const [contactSaving, setContactSaving] = useState(false);
 
   const applyConnectionStatusUpdates = useCallback((updates = {}) => {
     const entries = Object.entries(updates || {}).filter(([session, status]) => session && status);
@@ -181,6 +201,8 @@ const ChatView = () => {
 
   useEffect(() => {
     setDeleteTarget(null);
+    setContactModalOpen(false);
+    setContactModalError('');
   }, [activeChatId]);
 
   const getMessageKey = useCallback((m) => {
@@ -305,10 +327,74 @@ const ChatView = () => {
     [searchQuickReplies, sendQuickReply]
   );
 
-  const normalizeContactInput = useCallback((value) => {
-    if (!value) return '';
-    return String(value).replace(/\D+/g, '');
-  }, []);
+  const normalizeContactInput = useCallback((value) => normalizePhoneNumber(value), []);
+  const normalizePhoneSafe = useCallback((value) => normalizePhoneNumber(value), []);
+
+  const upsertContactInState = useCallback(
+    (contact) => {
+      if (!contact) return;
+      const key = normalizePhoneSafe(contact.phoneNormalized || contact.phone || contact.phone_normalized || '');
+      if (!key) return;
+      const sanitized = {
+        phoneNormalized: key,
+        displayName: contact.displayName ?? contact.display_name ?? null,
+        avatarRef: contact.avatarRef ?? contact.avatar_ref ?? null,
+        metadata: contact.metadata || null,
+        updatedAt: contact.updatedAt || contact.updated_at || null
+      };
+      setContactBook((prev) => ({ ...prev, [key]: sanitized }));
+      return sanitized;
+    },
+    [normalizePhoneSafe]
+  );
+
+  const fetchContactByPhone = useCallback(
+    async (phone) => {
+      const normalized = normalizePhoneSafe(phone);
+      if (!normalized) return null;
+      if (contactBook[normalized]) return contactBook[normalized];
+      if (contactLoadingRef.current.has(normalized)) return null;
+      contactLoadingRef.current.add(normalized);
+      try {
+        const data = await contactsApi.getByPhone(normalized);
+        const resolved = {
+          phoneNormalized: data?.phoneNormalized || data?.phone_normalized || normalized,
+          displayName: data?.displayName ?? data?.display_name ?? null,
+          avatarRef: data?.avatarRef ?? data?.avatar_ref ?? null,
+          metadata: data?.metadata || null,
+          updatedAt: data?.updatedAt || data?.updated_at || null
+        };
+        setContactBook((prev) => ({ ...prev, [normalized]: resolved }));
+        return resolved;
+      } catch (_err) {
+        return null;
+      } finally {
+        contactLoadingRef.current.delete(normalized);
+      }
+    },
+    [contactBook, contactsApi, normalizePhoneSafe]
+  );
+
+  const preloadContactsForChats = useCallback(
+    async (items = []) => {
+      const phones = Array.from(
+        new Set(
+          (items || [])
+            .map((c) => normalizePhoneSafe(c.remoteNumber || c.remote_number || ''))
+            .filter((p) => p && !contactBook[p])
+        )
+      );
+      if (!phones.length) return;
+      await Promise.allSettled(phones.map((p) => fetchContactByPhone(p)));
+    },
+    [contactBook, fetchContactByPhone, normalizePhoneSafe]
+  );
+
+  const activeContact = useMemo(() => {
+    const normalized = normalizePhoneSafe(activeChat?.remoteNumber || activeChat?.remote_number || '');
+    if (!normalized) return null;
+    return contactBook[normalized] || null;
+  }, [activeChat?.remoteNumber, activeChat?.remote_number, contactBook, normalizePhoneSafe]);
 
   const hasOpenChatForContact = useCallback(
     (sessionName, contactValue) => {
@@ -499,40 +585,69 @@ const ChatView = () => {
     });
   }, []);
 
-  const normalizeChat = useCallback((chat) => {
-    if (!chat) return chat;
-    const queueId = chat.queueId || chat.queue_id || chat.queue?.id || null;
-    const sessionName = chat.whatsappSessionName || chat.whatsapp_session_name || chat.connectionId || null;
-    const whatsappStatus =
-      chat.whatsappStatus || chat.whatsapp_status || (sessionName ? connectionStatusMap[sessionName] : null);
-    const contactAvatar =
-      chat.remoteAvatar ||
-      chat.remote_avatar ||
-      chat.remoteProfilePic ||
-      chat.remote_profile_pic ||
-      chat.remoteProfilePicUrl ||
-      chat.remote_profile_pic_url ||
-      chat.profilePic ||
-      chat.profile_pic ||
-      chat.profilePicUrl ||
-      chat.profile_pic_url ||
-      chat.contactAvatar ||
-      chat.contact_avatar ||
-      chat.contactPhoto ||
-      chat.contact_photo ||
-      chat.contactPhotoUrl ||
-      chat.contact_photo_url ||
-      chat.contactImage ||
-      chat.contact_image ||
-      chat.contactImageUrl ||
-      chat.contact_image_url ||
-      chat.contactPicture ||
-      chat.contact_picture ||
-      chat.picture ||
-      chat.avatar ||
-      null;
-    return { ...chat, queueId, whatsappStatus, whatsappSessionName: sessionName, contactAvatar };
-  }, [connectionStatusMap]);
+  const normalizeChat = useCallback(
+    (chat) => {
+      if (!chat) return chat;
+      const queueId = chat.queueId || chat.queue_id || chat.queue?.id || null;
+      const sessionName = chat.whatsappSessionName || chat.whatsapp_session_name || chat.connectionId || null;
+      const whatsappStatus =
+        chat.whatsappStatus || chat.whatsapp_status || (sessionName ? connectionStatusMap[sessionName] : null);
+      const phone = chat.remoteNumber || chat.remote_number || chat.contact || '';
+      const phoneNormalized = normalizePhoneSafe(phone);
+      const contactInfo = phoneNormalized ? contactBook[phoneNormalized] : null;
+      const baseAvatar =
+        chat.remoteAvatar ||
+        chat.remote_avatar ||
+        chat.remoteProfilePic ||
+        chat.remote_profile_pic ||
+        chat.remoteProfilePicUrl ||
+        chat.remote_profile_pic_url ||
+        chat.profilePic ||
+        chat.profile_pic ||
+        chat.profilePicUrl ||
+        chat.profile_pic_url ||
+        chat.contactAvatar ||
+        chat.contact_avatar ||
+        chat.contactPhoto ||
+        chat.contact_photo ||
+        chat.contactPhotoUrl ||
+        chat.contact_photo_url ||
+        chat.contactImage ||
+        chat.contact_image ||
+        chat.contactImageUrl ||
+        chat.contact_image_url ||
+        chat.contactPicture ||
+        chat.contact_picture ||
+        chat.picture ||
+        chat.avatar ||
+        null;
+      const contactAvatar = baseAvatar || contactInfo?.avatarRef || contactInfo?.avatar_ref || null;
+      const displayName =
+        contactInfo?.displayName ||
+        chat.contactDisplayName ||
+        chat.contactName ||
+        chat.contact_name ||
+        chat.pushName ||
+        chat.remoteName ||
+        phone ||
+        'Contacto';
+      return {
+        ...chat,
+        queueId,
+        whatsappStatus,
+        whatsappSessionName: sessionName,
+        contactAvatar,
+        contactDisplayName: contactInfo?.displayName ?? chat.contactDisplayName ?? null,
+        phoneNormalized,
+        remoteName: displayName
+      };
+    },
+    [connectionStatusMap, contactBook, normalizePhoneSafe]
+  );
+
+  useEffect(() => {
+    setChats((prev) => prev.map((c) => normalizeChat(c)));
+  }, [normalizeChat]);
 
   const loadAgentsAndConnections = useCallback(
     async (queueId) => {
@@ -621,6 +736,7 @@ const ChatView = () => {
       });
       const itemsRaw = data?.items || data || [];
       const items = itemsRaw.map(normalizeChat);
+      preloadContactsForChats(items).catch(() => {});
       // Actualizar mapa de estado de conexión si viene en la respuesta
       const statusUpdates = {};
       itemsRaw.forEach((c) => {
@@ -715,6 +831,11 @@ const ChatView = () => {
       setUnread((prev) => ({ ...prev, [activeChatId]: 0 }));
     }
   }, [activeChatId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!activeChat) return;
+    fetchContactByPhone(activeChat.remoteNumber || activeChat.remote_number || '');
+  }, [activeChat, fetchContactByPhone]);
 
   useEffect(() => {
     const chatIdParam = searchParams.get('chatId');
@@ -906,6 +1027,61 @@ const ChatView = () => {
       handleError(err);
     }
   };
+
+  const handleOpenContactModal = useCallback(
+    ({ avatarUrl } = {}) => {
+      if (!activeChat) return;
+      setContactModalAvatar(
+        avatarUrl ||
+          activeChat.contactAvatar ||
+          activeChat.remoteAvatar ||
+          activeChat.remote_avatar ||
+          activeChat.profilePic ||
+          activeChat.profile_pic ||
+          null
+      );
+      setContactModalError('');
+      setContactModalOpen(true);
+    },
+    [activeChat]
+  );
+
+  const handleSaveContact = useCallback(
+    async ({ displayName }) => {
+      if (!activeChat) return;
+      const phone = activeChat.remoteNumber || activeChat.remote_number || '';
+      const normalized = normalizePhoneSafe(phone);
+      if (!normalized) {
+        setContactModalError('Número inválido');
+        return;
+      }
+      const desiredName = typeof displayName === 'string' ? displayName.trim() : '';
+      setContactSaving(true);
+      setContactModalError('');
+      try {
+        const payload = await contactsApi.upsert({
+          phone,
+          displayName: desiredName
+        });
+        upsertContactInState(
+          payload || {
+            phoneNormalized: normalized,
+            displayName: desiredName,
+            avatarRef: activeContact?.avatarRef ?? null,
+            metadata: activeContact?.metadata ?? null,
+            updatedAt: new Date().toISOString()
+          }
+        );
+        setSnackbar({ severity: 'success', message: 'Contacto actualizado' });
+        setContactModalOpen(false);
+      } catch (err) {
+        setContactModalError(err?.message || 'No se pudo guardar el contacto');
+      } finally {
+        setContactSaving(false);
+      }
+    },
+    [activeChat, activeContact?.avatarRef, activeContact?.metadata, contactsApi, normalizePhoneSafe, upsertContactInState]
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -1139,6 +1315,22 @@ const ChatView = () => {
       applyConnectionStatusUpdates({ [evt.sessionId]: evt.status });
     };
     socket.on('whatsapp:status', handleWhatsappStatus);
+    const handleContactUpdated = (payload = {}) => {
+      const normalized = normalizePhoneSafe(payload.phoneNormalized || payload.phone_normalized || payload.phone);
+      if (!normalized) return;
+      setContactBook((prev) => ({
+        ...prev,
+        [normalized]: {
+          ...(prev[normalized] || {}),
+          phoneNormalized: normalized,
+          displayName: payload.displayName ?? payload.display_name ?? null,
+          avatarRef: payload.avatarRef ?? payload.avatar_ref ?? null,
+          metadata: payload.metadata || prev[normalized]?.metadata || null,
+          updatedAt: payload.updatedAt || payload.updated_at || prev[normalized]?.updatedAt || null
+        }
+      }));
+    };
+    socket.on('contact.updated', handleContactUpdated);
 
     socketRef.current = socket;
     return () => {
@@ -1149,8 +1341,9 @@ const ChatView = () => {
       socket.off('chat:update');
       socket.off('chat:auto-closed');
       socket.off('whatsapp:status', handleWhatsappStatus);
+      socket.off('contact.updated', handleContactUpdated);
     };
-  }, [token, applyConnectionStatusUpdates]);
+  }, [token, applyConnectionStatusUpdates, normalizePhoneSafe]);
 
   return (
     <PageLayout title={null} subtitle={null}>
@@ -1334,33 +1527,44 @@ const ChatView = () => {
             onLoadMore={() => loadChats(true)}
           />
         )}
-      <ChatWindow
-        chat={activeChat}
-        userId={user?.id}
-        messages={messages[activeChatId] || []}
-        onSend={handleSend}
-        sending={false}
-        loadingMessages={loadingMsgs}
-        role={role}
-        onDeleteMessage={handleDeleteMessage}
-        onAssignToMe={
-          role === 'ADMIN' || role === 'SUPERVISOR'
-            ? handleAssignToMe
-            : activeChat && !activeChat.assignedUserId
-            ? handleAssignToMe
-            : undefined
-        }
-        onReassign={canOpenReassign ? () => setShowReassign(true) : undefined}
-        onCloseChat={activeChat ? handleCloseChat : undefined}
-        quickReplyApi={quickReplyApi}
-        chatPanelProps={{
-          hasMore: hasMoreMap[activeChatId] || false,
-          loadingMore: messagesLoadingMap[activeChatId] || false,
-          onLoadMore: handleLoadMoreMessages,
-          autoScrollKey: scrollKey
-        }}
-      />
+        <ChatWindow
+          chat={activeChat}
+          userId={user?.id}
+          messages={messages[activeChatId] || []}
+          onSend={handleSend}
+          sending={false}
+          loadingMessages={loadingMsgs}
+          role={role}
+          onDeleteMessage={handleDeleteMessage}
+          onAssignToMe={
+            role === 'ADMIN' || role === 'SUPERVISOR'
+              ? handleAssignToMe
+              : activeChat && !activeChat.assignedUserId
+              ? handleAssignToMe
+              : undefined
+          }
+          onReassign={canOpenReassign ? () => setShowReassign(true) : undefined}
+          onCloseChat={activeChat ? handleCloseChat : undefined}
+          quickReplyApi={quickReplyApi}
+          onOpenContact={activeChat ? handleOpenContactModal : undefined}
+          chatPanelProps={{
+            hasMore: hasMoreMap[activeChatId] || false,
+            loadingMore: messagesLoadingMap[activeChatId] || false,
+            onLoadMore: handleLoadMoreMessages,
+            autoScrollKey: scrollKey
+          }}
+        />
       </Box>
+      <ContactInfoModal
+        open={contactModalOpen}
+        onClose={() => (!contactSaving ? setContactModalOpen(false) : null)}
+        contact={activeContact}
+        chat={activeChat}
+        avatarUrl={contactModalAvatar}
+        onSave={handleSaveContact}
+        loading={contactSaving}
+        error={contactModalError}
+      />
       <Dialog open={newChatOpen} onClose={() => (!newChatLoading ? setNewChatOpen(false) : null)} fullWidth maxWidth="sm">
         <DialogTitle>Nuevo Chat</DialogTitle>
         <DialogContent dividers>

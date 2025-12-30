@@ -74,7 +74,8 @@ const ChatWindow = ({
   loadingMessages = false,
   onDeleteMessage,
   chatPanelProps = {},
-  quickReplyApi = {}
+  quickReplyApi = {},
+  onOpenContact
 }) => {
   /* =========================
      STATE
@@ -105,7 +106,13 @@ const ChatWindow = ({
   const { token } = useAuth();
   const avatarCache = useRef(new Map());
   const [resolvedAvatar, setResolvedAvatar] = useState(null);
-  const contactName = chat?.remoteName || chat?.remoteNumber || 'Contacto';
+  const contactName =
+    chat?.remoteName ||
+    chat?.contactDisplayName ||
+    chat?.contactName ||
+    chat?.pushName ||
+    chat?.remoteNumber ||
+    'Contacto';
   const contactAvatar =
     chat?.contactAvatar ||
     chat?.remoteAvatar ||
@@ -182,6 +189,10 @@ const ChatWindow = ({
     };
     resolveAvatar();
   }, [contactAvatar, token]);
+
+  const handleOpenContact = () => {
+    onOpenContact?.({ avatarUrl: resolvedAvatar || contactAvatar || null });
+  };
 
   /* =========================
      PERMISOS
@@ -540,25 +551,30 @@ const ChatWindow = ({
           bgcolor: statusBg(theme, chat.status)
         })}
       >
-        <Avatar
-          src={resolvedAvatar || undefined}
-          alt={contactName}
-          sx={(theme) => ({
-            width: 40,
-            height: 40,
-            bgcolor: contactAvatar ? theme.palette.background.paper : theme.palette.primary.light,
-            color: contactAvatar ? theme.palette.text.primary : theme.palette.primary.contrastText,
-            fontWeight: 700,
-            border: `1px solid ${theme.palette.divider}`
-          })}
-        >
-          {contactName?.[0]?.toUpperCase() || 'C'}
-        </Avatar>
+        <Box onClick={handleOpenContact} sx={{ cursor: onOpenContact ? 'pointer' : 'default' }}>
+          <Avatar
+            src={resolvedAvatar || undefined}
+            alt={contactName}
+            sx={(theme) => ({
+              width: 40,
+              height: 40,
+              bgcolor: contactAvatar ? theme.palette.background.paper : theme.palette.primary.light,
+              color: contactAvatar ? theme.palette.text.primary : theme.palette.primary.contrastText,
+              fontWeight: 700,
+              border: `1px solid ${theme.palette.divider}`
+            })}
+          >
+            {contactName?.[0]?.toUpperCase() || 'C'}
+          </Avatar>
+        </Box>
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="body2" fontWeight={700} noWrap>
-            {chat.remoteNumber}
+            {contactName}
           </Typography>
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {chat.remoteNumber || 'Sin número'}
+            </Typography>
             <Chip
               size="small"
               label={chat.status}

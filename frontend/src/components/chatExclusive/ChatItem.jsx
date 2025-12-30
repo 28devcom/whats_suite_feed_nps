@@ -47,7 +47,8 @@ const ChatItem = ({ chat, selected, onSelect, unread = 0 }) => {
     chat.profile_pic_url ||
     chat.avatar ||
     null;
-  const avatarLabel = chat.remoteName || chat.remoteNumber || 'Contacto';
+  const displayName = chat.remoteName || chat.contactDisplayName || chat.contactName || chat.remoteNumber || 'Contacto';
+  const avatarLabel = displayName;
 
   const mediaRequest = useMemo(() => {
     if (!avatarUrl) return null;
@@ -152,7 +153,7 @@ const ChatItem = ({ chat, selected, onSelect, unread = 0 }) => {
               noWrap
               sx={{ flex: 1 }}
             >
-              {chat.remoteNumber || 'Sin número'}
+              {displayName}
             </Typography>
 
             {/* Unread */}
@@ -185,7 +186,7 @@ const ChatItem = ({ chat, selected, onSelect, unread = 0 }) => {
             color="text.secondary"
             noWrap
           >
-            {queueLabel} · {agentLabel}
+            {(chat.remoteNumber || 'Sin número') + ' · ' + queueLabel + ' · ' + agentLabel}
           </Typography>
 
           {/* Segmento opcional */}

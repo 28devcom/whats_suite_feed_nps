@@ -1,3 +1,8 @@
+export const normalizePhoneNumber = (value) => {
+  if (value === undefined || value === null) return '';
+  return String(value).replace(/[^\d]/g, '');
+};
+
 export const normalizeMexNumber = (digits) => {
   if (!digits) return digits;
   const only = String(digits).replace(/[^\d]/g, '');
