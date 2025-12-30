@@ -64,8 +64,30 @@ const resolveQueueForSessionOrThrow = async (sessionName, user) => {
   return { queueId };
 };
 
+const logReadDeny = (reason, { chat, user, queueIds = null }) => {
+  logger.warn(
+    {
+      tag: 'CHAT_READ_DENY',
+      reason,
+      chatId: chat?.id,
+      chatStatus: chat?.status,
+      chatQueueId: chat?.queueId,
+      assignedAgentId: chat?.assignedAgentId,
+      assignedUserId: chat?.assignedUserId,
+      userId: user?.id,
+      userRole: user?.role,
+      userQueues: queueIds,
+      tenantId: user?.tenantId
+    },
+    'Chat read denied'
+  );
+};
+
 const ensureReadPermission = async (chat, user) => {
-  if (!chat || !user) throw new AppError('No autorizado a ver este chat', 403);
+  if (!chat || !user) {
+    logReadDeny('missing_chat_or_user', { chat, user });
+    throw new AppError('No autorizado a ver este chat', 403);
+  }
   if (user.role === 'ADMIN') return;
 
   const queueIds = (await getUserQueueIds(user.id)).map(String);
@@ -73,16 +95,19 @@ const ensureReadPermission = async (chat, user) => {
   const inQueue = queueId ? queueIds.includes(queueId) : true;
   if (!inQueue) {
     // ISO 27001: control de acceso por cola; evita fuga de chats entre equipos
+    logReadDeny('out_of_queue', { chat, user, queueIds });
     throw new AppError('No autorizado a ver este chat', 403);
   }
 
   if (user.role === 'SUPERVISOR') return;
   if (user.role === 'AGENTE') {
     if (chat.status !== 'OPEN' || chat.assignedAgentId !== user.id) {
+      logReadDeny('agent_not_owner_or_closed', { chat, user, queueIds });
       throw new AppError('No autorizado a ver este chat', 403);
     }
     return;
   }
+  logReadDeny('role_not_allowed', { chat, user, queueIds });
   throw new AppError('No autorizado a ver este chat', 403);
 };
 
