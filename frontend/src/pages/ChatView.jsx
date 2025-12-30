@@ -791,7 +791,7 @@ const ChatView = () => {
     [queueService, user?.id, user?.role, applyConnectionStatusUpdates]
   );
 
-  const loadChats = async (append = false) => {
+  async function loadChats(append = false) {
     if (!append) setChatCursor(null);
     if (append) setLoadingMoreChats(true);
     else setLoading(true);
@@ -835,7 +835,7 @@ const ChatView = () => {
       if (append) setLoadingMoreChats(false);
       else setLoading(false);
     }
-  };
+  }
 
   const setLoadingMoreFor = (chatId, value) => {
     setMessagesLoadingMap((prev) => ({ ...prev, [chatId]: value }));
