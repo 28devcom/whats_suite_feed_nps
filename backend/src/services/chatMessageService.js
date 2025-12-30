@@ -139,7 +139,7 @@ const emitChatEvents = async (chat, message, { actorUserId = null } = {}) => {
 };
 
 export const sendMessage = async ({ chatId, content, user, ip = null, messageType, metadata = null }) => {
-  const chat = await getChatById(chatId);
+  const chat = await getChatById(chatId, { useCache: false });
   if (!chat) throw new AppError('Chat no encontrado', 404);
   try {
     if (!chat.queueId) {
@@ -260,7 +260,7 @@ export const sendMessage = async ({ chatId, content, user, ip = null, messageTyp
 };
 
 export const sendMediaMessage = async ({ chatId, file, caption = '', user, ip = null }) => {
-  const chat = await getChatById(chatId);
+  const chat = await getChatById(chatId, { useCache: false });
   if (!chat) throw new AppError('Chat no encontrado', 404);
   if (!chat.queueId) {
     const { queueId } = await resolveQueueForSessionOrThrow(chat.whatsappSessionName, user);
@@ -405,7 +405,7 @@ export const sendMediaMessage = async ({ chatId, file, caption = '', user, ip = 
 
 export const receiveMessage = async ({ chatId, content }) => {
   // Para inbound no validamos usuario; se asume origen webhook/proceso interno
-  const chat = await getChatById(chatId);
+  const chat = await getChatById(chatId, { useCache: false });
   if (!chat) throw new AppError('Chat no encontrado', 404);
   const msg = await insertMessage({
     chatId,
@@ -431,7 +431,7 @@ export const receiveMessage = async ({ chatId, content }) => {
 };
 
 export const getChatMessages = async ({ chatId, limit, cursor }, user) => {
-  const chat = await getChatById(chatId);
+  const chat = await getChatById(chatId, { useCache: false });
   if (!chat) throw new AppError('Chat no encontrado', 404);
   await ensureReadPermission(chat, user);
   return listMessagesByChat({ chatId, limit, cursor });

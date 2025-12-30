@@ -95,10 +95,12 @@ const mapLoad = (row) => ({
   openChats: Number(row.count)
 });
 
-export const getChatById = async (id) => {
+export const getChatById = async (id, { useCache = true } = {}) => {
   await ensureChatSchema();
-  const cached = await getCachedChat(id);
-  if (cached) return cached;
+  if (useCache) {
+    const cached = await getCachedChat(id);
+    if (cached) return cached;
+  }
   const { rows } = await pool.query('SELECT * FROM chats WHERE id = $1 LIMIT 1', [id]);
   const chat = rows[0] ? mapChat(rows[0]) : null;
   if (chat) await cacheChat(chat);

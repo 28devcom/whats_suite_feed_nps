@@ -318,23 +318,14 @@ const ChatView = () => {
     (message = 'Este chat ya no está asignado o autorizado') => {
       const currentChatId = activeChatIdRef.current;
       if (!currentChatId) return;
+      setActiveChatId(null);
       delete messageCursorRef.current[currentChatId];
       delete hasMoreRef.current[currentChatId];
-      setChats((prev) => prev.filter((c) => c.id !== currentChatId));
-      setMessages((prev) => {
-        const next = { ...prev };
-        delete next[currentChatId];
-        return next;
-      });
-      setUnread((prev) => {
-        const next = { ...prev };
-        delete next[currentChatId];
-        return next;
-      });
-      setActiveChatId(null);
       setSnackbar({ severity: 'warning', message });
+      // Refrescar la lista para que refleje el estado real (asignado o no) sin expulsar al usuario.
+      loadChats().catch(() => {});
     },
-    []
+    [loadChats]
   );
 
   const handleError = (err) => {
