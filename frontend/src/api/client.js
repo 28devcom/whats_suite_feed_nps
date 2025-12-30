@@ -61,7 +61,7 @@ export const apiClient = (getToken, { onUnauthorized } = {}) => {
     }
     const response = await withTimeout(fetch(buildUrl(path), opts));
     const payload = await parseResponse(response);
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       if (onUnauthorized) await onUnauthorized(response);
     }
     ensureOk(response, payload);

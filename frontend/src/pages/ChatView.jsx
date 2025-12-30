@@ -63,45 +63,54 @@ const COUNTRY_OPTIONS = [
 
 const ChatView = () => {
   const { token, logout, user } = useAuth();
+  const handleApiUnauthorized = useCallback(
+    async (response) => {
+      const status = response?.status ?? response;
+      if (status === 401) {
+        await logout({ remote: false, reason: 'Sesión expirada o inválida' });
+      }
+    },
+    [logout]
+  );
   const chatService = useMemo(
     () =>
       createChatService({
         getToken: () => token,
-        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+        onUnauthorized: handleApiUnauthorized
       }),
-    [token, logout]
+    [token, handleApiUnauthorized]
   );
   const queueService = useMemo(
     () =>
       createQueueMembershipService({
         getToken: () => token,
-        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+        onUnauthorized: handleApiUnauthorized
       }),
-    [token, logout]
+    [token, handleApiUnauthorized]
   );
   const whatsappService = useMemo(
     () =>
       createWhatsappService({
         getToken: () => token,
-        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+        onUnauthorized: handleApiUnauthorized
       }),
-    [token, logout]
+    [token, handleApiUnauthorized]
   );
   const quickReplyService = useMemo(
     () =>
       createQuickRepliesService({
         getToken: () => token,
-        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+        onUnauthorized: handleApiUnauthorized
       }),
-    [token, logout]
+    [token, handleApiUnauthorized]
   );
   const contactsApi = useMemo(
     () =>
       createContactsApi({
         getToken: () => token,
-        onUnauthorized: async () => logout({ remote: false, reason: 'Sesión expirada o inválida' })
+        onUnauthorized: handleApiUnauthorized
       }),
-    [token, logout]
+    [token, handleApiUnauthorized]
   );
 
   const [chats, setChats] = useState([]);
@@ -305,11 +314,35 @@ const ChatView = () => {
     });
   }, [getMessageKey, hasRenderableContent]);
 
+  const handleChatAccessLost = useCallback(
+    (message = 'Este chat ya no está asignado o autorizado') => {
+      const currentChatId = activeChatIdRef.current;
+      if (!currentChatId) return;
+      delete messageCursorRef.current[currentChatId];
+      delete hasMoreRef.current[currentChatId];
+      setChats((prev) => prev.filter((c) => c.id !== currentChatId));
+      setMessages((prev) => {
+        const next = { ...prev };
+        delete next[currentChatId];
+        return next;
+      });
+      setUnread((prev) => {
+        const next = { ...prev };
+        delete next[currentChatId];
+        return next;
+      });
+      setActiveChatId(null);
+      setSnackbar({ severity: 'warning', message });
+    },
+    []
+  );
+
   const handleError = (err) => {
-    let msg = err instanceof ApiError ? err.message : err?.message || 'Error';
     if (err instanceof ApiError && err.status === 403) {
-      msg = 'Este chat está siendo atendido por otro agente';
+      handleChatAccessLost('Chat ya no disponible para tu usuario');
+      return;
     }
+    let msg = err instanceof ApiError ? err.message : err?.message || 'Error';
     setSnackbar({ severity: 'error', message: msg });
   };
 

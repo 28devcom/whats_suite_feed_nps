@@ -59,8 +59,8 @@ export const createChatService = ({ getToken, onUnauthorized } = {}) => {
       xhr.onload = async () => {
         const status = xhr.status;
         const payload = xhr.response;
-        if (status === 401 || status === 403) {
-          if (onUnauthorized) await onUnauthorized();
+        if (status === 401) {
+          if (onUnauthorized) await onUnauthorized({ status });
         }
         if (status >= 200 && status < 300) {
           resolve(payload?.data || payload);
