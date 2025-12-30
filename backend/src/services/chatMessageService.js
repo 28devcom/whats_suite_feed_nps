@@ -10,7 +10,7 @@ import { ROLES } from '../domain/user/user.js';
 import { buildMediaUrl } from '../shared/mediaUrl.js';
 import crypto from 'node:crypto';
 import pool from '../infra/db/postgres.js';
-import { normalizeMexNumber } from '../shared/phoneNormalizer.js';
+import { normalizeWhatsAppNumber } from '../shared/phoneNormalizer.js';
 import logger from '../infra/logging/logger.js';
 import { saveMediaBuffer } from '../infra/storage/mediaStorage.js';
 import { emitMessageSentEvent, emitMessageReceivedEvent } from '../infra/realtime/chatEvents.js';
@@ -125,7 +125,7 @@ export const sendMessage = async ({ chatId, content, user, ip = null, messageTyp
     }
     await ensureSendPermission(chat, user);
     const rawNumber = String(chat.remoteJid || chat.remoteNumber || '').replace(/[^\d]/g, '');
-    const normalizedNumber = normalizeMexNumber(rawNumber);
+    const normalizedNumber = normalizeWhatsAppNumber(rawNumber);
     if (!normalizedNumber) throw new AppError('Número remoto inválido', 400);
     const target = chat.remoteJid || `${normalizedNumber}@s.whatsapp.net`;
     if (chat.remoteNumber !== normalizedNumber || !chat.remoteJid || !chat.remoteJid.includes(normalizedNumber)) {
@@ -247,7 +247,7 @@ export const sendMediaMessage = async ({ chatId, file, caption = '', user, ip = 
   if (chat.status !== 'OPEN') throw new AppError('Chat no está abierto para enviar media', 403);
   if (!file?.buffer || !file.mimetype) throw new AppError('Archivo inválido', 400);
   const rawNumber = String(chat.remoteJid || chat.remoteNumber || '').replace(/[^\d]/g, '');
-  const normalizedNumber = normalizeMexNumber(rawNumber);
+  const normalizedNumber = normalizeWhatsAppNumber(rawNumber);
   if (!normalizedNumber) throw new AppError('Número remoto inválido', 400);
   const target = chat.remoteJid || `${normalizedNumber}@s.whatsapp.net`;
   if (chat.remoteNumber !== normalizedNumber || (chat.remoteJid && !chat.remoteJid.includes(normalizedNumber))) {

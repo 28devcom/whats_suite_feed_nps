@@ -43,6 +43,24 @@ import { getEventsSocket } from '../lib/eventsSocket.js';
 import createContactsApi from '../api/contacts.api.js';
 import { normalizePhoneNumber } from '../utils/phone.js';
 
+const COUNTRY_OPTIONS = [
+  { code: '52', label: 'México (+52)' },
+  { code: '1', label: 'EE.UU. / Canadá (+1)' },
+  { code: '57', label: 'Colombia (+57)' },
+  { code: '54', label: 'Argentina (+54)' },
+  { code: '55', label: 'Brasil (+55)' },
+  { code: '56', label: 'Chile (+56)' },
+  { code: '51', label: 'Perú (+51)' },
+  { code: '34', label: 'España (+34)' },
+  { code: '44', label: 'Reino Unido (+44)' },
+  { code: '33', label: 'Francia (+33)' },
+  { code: '49', label: 'Alemania (+49)' },
+  { code: '39', label: 'Italia (+39)' },
+  { code: '91', label: 'India (+91)' },
+  { code: '81', label: 'Japón (+81)' },
+  { code: '971', label: 'Emiratos Árabes (+971)' }
+];
+
 const ChatView = () => {
   const { token, logout, user } = useAuth();
   const chatService = useMemo(
@@ -119,16 +137,32 @@ const ChatView = () => {
   const quickReplyCacheRef = useRef(new Map());
   const [connectionStatusMap, setConnectionStatusMap] = useState({});
   const [newChatOpen, setNewChatOpen] = useState(false);
-  const [newChatForm, setNewChatForm] = useState({ sessionName: '', contact: '', queueId: '' });
+  const [newChatForm, setNewChatForm] = useState({
+    sessionName: '',
+    contact: '',
+    queueId: '',
+    countryCode: COUNTRY_OPTIONS[0].code
+  });
   const [newChatLoading, setNewChatLoading] = useState(false);
   const [availableConnections, setAvailableConnections] = useState([]);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const contactLoadingRef = useRef(new Set());
+  const selectedCountry = useMemo(
+    () => COUNTRY_OPTIONS.find((c) => c.code === newChatForm.countryCode) || COUNTRY_OPTIONS[0],
+    [newChatForm.countryCode]
+  );
   const selectedConnection = useMemo(
     () => availableConnections.find((c) => c.name === newChatForm.sessionName) || null,
     [availableConnections, newChatForm.sessionName]
   );
   const connectionQueues = useMemo(() => selectedConnection?.queues || [], [selectedConnection]);
+  const newChatContactValue = useMemo(() => {
+    const digits = normalizePhoneNumber(newChatForm.contact);
+    const code = normalizePhoneNumber(newChatForm.countryCode);
+    if (!digits) return '';
+    if (code && !digits.startsWith(code)) return `${code}${digits}`;
+    return digits;
+  }, [newChatForm.contact, newChatForm.countryCode]);
 
   const activeChat = useMemo(() => chats.find((c) => c.id === activeChatId), [chats, activeChatId]);
   const isActiveChatMine = useMemo(() => {
@@ -329,6 +363,16 @@ const ChatView = () => {
 
   const normalizeContactInput = useCallback((value) => normalizePhoneNumber(value), []);
   const normalizePhoneSafe = useCallback((value) => normalizePhoneNumber(value), []);
+  const buildPhoneWithCountry = useCallback(
+    (rawNumber, dialCode) => {
+      const digits = normalizePhoneSafe(rawNumber);
+      const code = normalizePhoneSafe(dialCode);
+      if (!digits) return '';
+      if (code && !digits.startsWith(code)) return `${code}${digits}`;
+      return digits;
+    },
+    [normalizePhoneSafe]
+  );
 
   const upsertContactInState = useCallback(
     (contact) => {
@@ -459,14 +503,14 @@ const ChatView = () => {
   }, [connectionQueues, selectedConnection?.name]);
 
   const openNewChatModal = () => {
-    setNewChatForm({ sessionName: '', contact: '', queueId: '' });
+    setNewChatForm({ sessionName: '', contact: '', queueId: '', countryCode: COUNTRY_OPTIONS[0].code });
     setNewChatOpen(true);
   };
 
   const handleCreateChat = async () => {
     const sessionName = newChatForm.sessionName.trim();
-    const contact = newChatForm.contact.trim();
     const queueId = newChatForm.queueId;
+    const contact = buildPhoneWithCountry(newChatForm.contact.trim(), newChatForm.countryCode);
     if (!sessionName || !contact) {
       setSnackbar({ severity: 'warning', message: 'Conexión y contacto son requeridos' });
       return;
@@ -1569,6 +1613,21 @@ const ChatView = () => {
         <DialogTitle>Nuevo Chat</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <Autocomplete
+              size="small"
+              options={COUNTRY_OPTIONS}
+              value={selectedCountry}
+              onChange={(_e, val) =>
+                setNewChatForm((prev) => ({
+                  ...prev,
+                  countryCode: val?.code || prev.countryCode
+                }))
+              }
+              getOptionLabel={(opt) => opt.label}
+              isOptionEqualToValue={(opt, val) => opt.code === val.code}
+              renderInput={(params) => <TextField {...params} label="País" placeholder="Selecciona el país" />}
+            />
+
             <FormControl fullWidth disabled={connectionsLoading} size="small">
               <InputLabel id="new-chat-connection-label" shrink>
                 Conexión WhatsApp
@@ -1661,9 +1720,12 @@ const ChatView = () => {
               placeholder="5512345678"
               value={newChatForm.contact}
               onChange={(e) => setNewChatForm((prev) => ({ ...prev, contact: e.target.value }))}
-              helperText="Se normaliza y se asocia al chat"
+              helperText={`Se normaliza con el prefijo +${selectedCountry.code || ''}`}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">+{selectedCountry.code}</InputAdornment>
+              }}
             />
-            {hasOpenChatForContact(newChatForm.sessionName, newChatForm.contact) && (
+            {hasOpenChatForContact(newChatForm.sessionName, newChatContactValue) && (
               <Alert severity="warning">Ya existe un chat activo para este contacto en esta conexión</Alert>
             )}
           </Stack>

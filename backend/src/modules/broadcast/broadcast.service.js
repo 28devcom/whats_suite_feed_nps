@@ -18,7 +18,7 @@ import {
   listBroadcastMessagesByCampaign,
   getCampaignById
 } from '../../infra/db/broadcastRepository.js';
-import { normalizeMexNumber } from '../../shared/phoneNormalizer.js';
+import { normalizeWhatsAppNumber } from '../../shared/phoneNormalizer.js';
 import { AppError } from '../../shared/errors.js';
 
 const dataUrlRegex = /^data:(.*?);base64,(.*)$/;
@@ -68,7 +68,7 @@ const normalizeTargets = (targets = []) => {
     .map((t) => t.replace(/[^\d]/g, ''))
     .filter((digits) => digits && digits.length >= 5)
     .forEach((t) => {
-      const normalized = normalizeMexNumber(t) || t;
+      const normalized = normalizeWhatsAppNumber(t) || t;
       if (normalized) set.add(normalized);
     });
   return Array.from(set);
@@ -81,7 +81,7 @@ const normalizeTargetEntries = (entries = []) => {
     const raw = typeof entry === 'string' || typeof entry === 'number' ? String(entry) : entry.phone || entry.target || '';
     const digits = String(raw).replace(/[^\d]/g, '');
     if (!digits || digits.length < 5) continue;
-    const normalized = normalizeMexNumber(digits);
+    const normalized = normalizeWhatsAppNumber(digits);
     const target = normalized || digits;
     const variables = entry.variables && typeof entry.variables === 'object' ? entry.variables : {};
     result.push({ target, variables });

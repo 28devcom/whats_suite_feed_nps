@@ -20,7 +20,7 @@ import pool from '../infra/db/postgres.js';
 import logger from '../infra/logging/logger.js';
 import { invalidateChat, cacheAssignment } from '../infra/cache/chatCache.js';
 import { emitChatAssignedEvent, emitChatClosedEvent } from '../infra/realtime/chatEvents.js';
-import { normalizeMexNumber } from '../shared/phoneNormalizer.js';
+import { normalizeWhatsAppNumber } from '../shared/phoneNormalizer.js';
 import {
   listConnectionsForUser,
   userHasConnection,
@@ -248,7 +248,7 @@ export const createOrReopenChat = async ({ sessionName, contact, queueId }, user
   if (!trimmedSession) throw new AppError('connection_id requerido', 400);
   const rawContact = (contact || '').toString().trim();
   if (!rawContact) throw new AppError('Contacto requerido', 400);
-  const normalizedNumber = normalizeMexNumber(rawContact);
+  const normalizedNumber = normalizeWhatsAppNumber(rawContact);
   if (!normalizedNumber) throw new AppError('Número de contacto inválido', 400);
   const remoteJid = `${normalizedNumber}@s.whatsapp.net`;
   const tenantId = await resolveTenantId(user?.id || null);

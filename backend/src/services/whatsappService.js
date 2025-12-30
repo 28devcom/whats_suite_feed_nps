@@ -16,7 +16,7 @@ import { emitToAll } from '../infra/realtime/socketHub.js';
 import { Buffer } from 'node:buffer';
 import env from '../config/env.js';
 import { getSystemSettings } from '../infra/db/systemSettingsRepository.js';
-import { normalizeMexNumber } from '../shared/phoneNormalizer.js';
+import { normalizeWhatsAppNumber } from '../shared/phoneNormalizer.js';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -685,7 +685,7 @@ export const sendWhatsAppMessage = async ({ sessionName, remoteNumber, content }
   }
 
   const sanitized = String(remoteNumber || '').replace(/[^\d]/g, '');
-  const normalizedDigits = normalizeMexNumber(sanitized);
+  const normalizedDigits = normalizeWhatsAppNumber(sanitized);
   if (!normalizedDigits) {
     throw new AppError('Número remoto inválido', 400);
   }
