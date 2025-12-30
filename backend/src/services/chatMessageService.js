@@ -68,8 +68,9 @@ const ensureReadPermission = async (chat, user) => {
   if (!chat || !user) throw new AppError('No autorizado a ver este chat', 403);
   if (user.role === 'ADMIN') return;
 
-  const queueIds = await getUserQueueIds(user.id);
-  const inQueue = chat.queueId ? queueIds.includes(chat.queueId) : false;
+  const queueIds = (await getUserQueueIds(user.id)).map(String);
+  const queueId = chat.queueId ? String(chat.queueId) : null;
+  const inQueue = queueId ? queueIds.includes(queueId) : true;
   if (!inQueue) {
     // ISO 27001: control de acceso por cola; evita fuga de chats entre equipos
     throw new AppError('No autorizado a ver este chat', 403);
