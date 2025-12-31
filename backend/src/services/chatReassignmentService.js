@@ -1,5 +1,5 @@
 import { AppError } from '../shared/errors.js';
-import { buildChatAccessTrace } from '../shared/chatAccessTrace.js';
+import { buildChatAccessTraceWithAudit } from '../shared/chatAccessTrace.js';
 import {
   getChatById,
   assignChatDb,
@@ -34,7 +34,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
   if (!user) {
     throw accessError(
       'No autorizado a reasignar',
-      buildChatAccessTrace({
+      await buildChatAccessTraceWithAudit({
         action: 'chat_reassign',
         reason: 'missing_user',
         chat: chatId ? { id: chatId } : null,
@@ -49,7 +49,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
     logger.warn({ userId: user?.id, role: user?.role, tag: LOG_TAG }, 'Reassign blocked: insufficient role');
     throw accessError(
       'No autorizado a reasignar',
-      buildChatAccessTrace({
+      await buildChatAccessTraceWithAudit({
         action: 'chat_reassign',
         reason: 'role_not_allowed',
         chat: chatId ? { id: chatId } : null,
@@ -71,7 +71,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
     if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
       throw accessError(
         'Solo puedes transferir chats asignados a ti',
-        buildChatAccessTrace({
+        await buildChatAccessTraceWithAudit({
           action: 'chat_reassign',
           reason: 'agent_not_owner',
           chat,
@@ -83,7 +83,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
     if (!chat.queueId) {
       throw accessError(
         'Solo puedes transferir chats con cola asignada',
-        buildChatAccessTrace({
+        await buildChatAccessTraceWithAudit({
           action: 'chat_reassign',
           reason: 'agent_missing_queue',
           chat,
@@ -96,7 +96,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
     if (!actorInQueue) {
       throw accessError(
         'No puedes transferir chats fuera de tu cola',
-        buildChatAccessTrace({
+        await buildChatAccessTraceWithAudit({
           action: 'chat_reassign',
           reason: 'actor_out_of_queue',
           chat,
@@ -108,7 +108,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
     if (sessionName && sessionName !== chat.whatsappSessionName) {
       throw accessError(
         'No puedes cambiar la conexión al transferir el chat',
-        buildChatAccessTrace({
+        await buildChatAccessTraceWithAudit({
           action: 'chat_reassign',
           reason: 'agent_session_change_denied',
           chat,
@@ -130,7 +130,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
     );
     throw accessError(
       'Agente destino no pertenece a la cola del chat',
-      buildChatAccessTrace({
+      await buildChatAccessTraceWithAudit({
         action: 'chat_reassign',
         reason: 'target_agent_out_of_queue',
         chat,
@@ -150,7 +150,7 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
       );
       throw accessError(
         'Agente origen no pertenece a la cola del chat',
-        buildChatAccessTrace({
+        await buildChatAccessTraceWithAudit({
           action: 'chat_reassign',
           reason: 'origin_agent_out_of_queue',
           chat,

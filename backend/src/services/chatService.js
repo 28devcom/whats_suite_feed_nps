@@ -1,5 +1,5 @@
 import { AppError } from '../shared/errors.js';
-import { buildChatAccessTrace } from '../shared/chatAccessTrace.js';
+import { buildChatAccessTraceWithAudit } from '../shared/chatAccessTrace.js';
 import {
   getChatById,
   assignChatDb,
@@ -56,7 +56,7 @@ export const assignChat = async (chatId, user, { ip = null } = {}) => {
     const queueIds = await getUserQueueIds(user.id).catch(() => null);
     throw accessError(
       'No puedes asignarte un chat fuera de tus colas',
-      buildChatAccessTrace({ action: 'chat_assign', reason: 'out_of_queue', chat, user, queueIds }),
+      await buildChatAccessTraceWithAudit({ action: 'chat_assign', reason: 'out_of_queue', chat, user, queueIds }),
       'CHAT_ASSIGN_DENIED'
     );
   }
@@ -84,7 +84,7 @@ export const assignChat = async (chatId, user, { ip = null } = {}) => {
     );
     throw accessError(
       'No autorizado a reasignar este chat',
-      buildChatAccessTrace({
+      await buildChatAccessTraceWithAudit({
         action: 'chat_assign',
         reason: 'reassign_not_allowed',
         chat,
@@ -135,7 +135,7 @@ export const unassignChat = async (chatId, user, { ip = null } = {}) => {
     const queueIds = await getUserQueueIds(user.id).catch(() => null);
     throw accessError(
       'No puedes operar chats fuera de tus colas',
-      buildChatAccessTrace({ action: 'chat_unassign', reason: 'out_of_queue', chat, user, queueIds }),
+      await buildChatAccessTraceWithAudit({ action: 'chat_unassign', reason: 'out_of_queue', chat, user, queueIds }),
       'CHAT_UNASSIGN_DENIED'
     );
   }
@@ -144,7 +144,7 @@ export const unassignChat = async (chatId, user, { ip = null } = {}) => {
     if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
       throw accessError(
         'No puedes desasignar este chat',
-        buildChatAccessTrace({ action: 'chat_unassign', reason: 'not_owner', chat, user }),
+        await buildChatAccessTraceWithAudit({ action: 'chat_unassign', reason: 'not_owner', chat, user }),
         'CHAT_UNASSIGN_DENIED'
       );
     }
@@ -192,7 +192,7 @@ export const closeChat = async (chatId, user, { ip = null } = {}) => {
     const queueIds = await getUserQueueIds(user.id).catch(() => null);
     throw accessError(
       'No autorizado a operar este chat',
-      buildChatAccessTrace({ action: 'chat_close', reason: 'out_of_queue', chat, user, queueIds }),
+      await buildChatAccessTraceWithAudit({ action: 'chat_close', reason: 'out_of_queue', chat, user, queueIds }),
       'CHAT_CLOSE_DENIED'
     );
   }
@@ -201,7 +201,7 @@ export const closeChat = async (chatId, user, { ip = null } = {}) => {
     if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
       throw accessError(
         'No autorizado a cerrar este chat',
-        buildChatAccessTrace({ action: 'chat_close', reason: 'not_owner', chat, user }),
+        await buildChatAccessTraceWithAudit({ action: 'chat_close', reason: 'not_owner', chat, user }),
         'CHAT_CLOSE_DENIED'
       );
     }
@@ -259,7 +259,7 @@ export const reopenChat = async (chatId, user, { ip = null } = {}) => {
     const queueIds = await getUserQueueIds(user.id).catch(() => null);
     throw accessError(
       'No autorizado a operar este chat',
-      buildChatAccessTrace({ action: 'chat_reopen', reason: 'out_of_queue', chat, user, queueIds }),
+      await buildChatAccessTraceWithAudit({ action: 'chat_reopen', reason: 'out_of_queue', chat, user, queueIds }),
       'CHAT_REOPEN_DENIED'
     );
   }
@@ -311,7 +311,7 @@ export const createOrReopenChat = async ({ sessionName, contact, queueId }, user
   if (!allowedConnection) {
     throw accessError(
       'Conexión no asignada a tus colas',
-      buildChatAccessTrace({
+      await buildChatAccessTraceWithAudit({
         action: 'chat_create',
         reason: 'connection_not_allowed',
         chat: null,
@@ -328,7 +328,7 @@ export const createOrReopenChat = async ({ sessionName, contact, queueId }, user
   if (!queuesForConnection.length) {
     throw accessError(
       'No tienes colas asignadas para esta conexión',
-      buildChatAccessTrace({
+      await buildChatAccessTraceWithAudit({
         action: 'chat_create',
         reason: 'no_queues_for_connection',
         chat: null,

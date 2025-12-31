@@ -1,5 +1,5 @@
 import { AppError } from '../shared/errors.js';
-import { buildChatAccessTrace } from '../shared/chatAccessTrace.js';
+import { buildChatAccessTraceWithAudit } from '../shared/chatAccessTrace.js';
 import {
   findMessageByUniqueKey,
   findMessageByWhatsappId,
@@ -20,7 +20,7 @@ const ensureVisibility = async (chat, user) => {
   if (!chat || !user) {
     throw accessError(
       'No autorizado',
-      buildChatAccessTrace({ action: 'chat_message_delete', reason: 'missing_chat_or_user', chat, user })
+      await buildChatAccessTraceWithAudit({ action: 'chat_message_delete', reason: 'missing_chat_or_user', chat, user })
     );
   }
   if (user.role === ROLES.ADMIN || user.role === ROLES.SUPERVISOR) return true;
@@ -39,7 +39,7 @@ const ensureVisibility = async (chat, user) => {
         : 'role_not_allowed';
   throw accessError(
     'No autorizado',
-    buildChatAccessTrace({ action: 'chat_message_delete', reason, chat, user })
+    await buildChatAccessTraceWithAudit({ action: 'chat_message_delete', reason, chat, user })
   );
 };
 

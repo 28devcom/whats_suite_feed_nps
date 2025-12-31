@@ -1,5 +1,5 @@
 import { AppError } from '../shared/errors.js';
-import { buildChatAccessTrace } from '../shared/chatAccessTrace.js';
+import { buildChatAccessTraceWithAudit } from '../shared/chatAccessTrace.js';
 import { getChatById, getUserQueueIds, isUserInQueue, setChatQueue } from '../infra/db/chatRepository.js';
 import { insertMessage, listMessagesByChat } from '../infra/db/chatMessageRepository.js';
 import { recordAuditLog } from '../infra/db/auditRepository.js';
@@ -37,14 +37,14 @@ const ensureSendPermission = async (chat, user) => {
   if (!chat || !user) {
     throw accessError(
       'No autorizado',
-      buildChatAccessTrace({ action, reason: 'missing_chat_or_user', chat, user }),
+      await buildChatAccessTraceWithAudit({ action, reason: 'missing_chat_or_user', chat, user }),
       'CHAT_SEND_DENIED'
     );
   }
   if (chat.status === 'CLOSED') {
     throw accessError(
       'Chat no está abierto para enviar mensajes',
-      buildChatAccessTrace({ action, reason: 'chat_closed', chat, user }),
+      await buildChatAccessTraceWithAudit({ action, reason: 'chat_closed', chat, user }),
       'CHAT_SEND_DENIED'
     );
   }
@@ -55,7 +55,7 @@ const ensureSendPermission = async (chat, user) => {
       const queueIds = await getUserQueueIds(user.id).catch(() => null);
       throw accessError(
         'No autorizado a enviar en este chat',
-        buildChatAccessTrace({ action, reason: 'out_of_queue', chat, user, queueIds }),
+        await buildChatAccessTraceWithAudit({ action, reason: 'out_of_queue', chat, user, queueIds }),
         'CHAT_SEND_DENIED'
       );
     }
@@ -68,7 +68,7 @@ const ensureSendPermission = async (chat, user) => {
     if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
       throw accessError(
         'Chat no asignado a este agente',
-        buildChatAccessTrace({ action, reason: 'agent_not_assigned', chat, user }),
+        await buildChatAccessTraceWithAudit({ action, reason: 'agent_not_assigned', chat, user }),
         'CHAT_SEND_DENIED'
       );
     }
@@ -88,7 +88,7 @@ const resolveQueueForSessionOrThrow = async (sessionName, user) => {
       const userQueues = await getUserQueueIds(user.id).catch(() => null);
       throw accessError(
         'No perteneces a la cola configurada para este chat',
-        buildChatAccessTrace({
+        await buildChatAccessTraceWithAudit({
           action: 'chat_send',
           reason: 'out_of_queue',
           chat: null,
@@ -127,7 +127,7 @@ const ensureReadPermission = async (chat, user) => {
     logReadDeny('missing_chat_or_user', { chat, user });
     throw accessError(
       'No autorizado a ver este chat',
-      buildChatAccessTrace({ action: 'chat_read', reason: 'missing_chat_or_user', chat, user }),
+      await buildChatAccessTraceWithAudit({ action: 'chat_read', reason: 'missing_chat_or_user', chat, user }),
       'CHAT_READ_DENIED'
     );
   }
@@ -141,7 +141,7 @@ const ensureReadPermission = async (chat, user) => {
     logReadDeny('out_of_queue', { chat, user, queueIds });
     throw accessError(
       'No autorizado a ver este chat',
-      buildChatAccessTrace({ action: 'chat_read', reason: 'out_of_queue', chat, user, queueIds }),
+      await buildChatAccessTraceWithAudit({ action: 'chat_read', reason: 'out_of_queue', chat, user, queueIds }),
       'CHAT_READ_DENIED'
     );
   }
@@ -152,7 +152,7 @@ const ensureReadPermission = async (chat, user) => {
       logReadDeny('agent_not_owner_or_closed', { chat, user, queueIds });
       throw accessError(
         'No autorizado a ver este chat',
-        buildChatAccessTrace({ action: 'chat_read', reason: 'agent_not_owner_or_closed', chat, user, queueIds }),
+        await buildChatAccessTraceWithAudit({ action: 'chat_read', reason: 'agent_not_owner_or_closed', chat, user, queueIds }),
         'CHAT_READ_DENIED'
       );
     }
@@ -161,7 +161,7 @@ const ensureReadPermission = async (chat, user) => {
   logReadDeny('role_not_allowed', { chat, user, queueIds });
   throw accessError(
     'No autorizado a ver este chat',
-    buildChatAccessTrace({ action: 'chat_read', reason: 'role_not_allowed', chat, user, queueIds }),
+    await buildChatAccessTraceWithAudit({ action: 'chat_read', reason: 'role_not_allowed', chat, user, queueIds }),
     'CHAT_READ_DENIED'
   );
 };
@@ -328,7 +328,7 @@ export const sendMediaMessage = async ({ chatId, file, caption = '', user, ip = 
   if (chat.status !== 'OPEN') {
     throw accessError(
       'Chat no está abierto para enviar media',
-      buildChatAccessTrace({ action: 'chat_send_media', reason: 'chat_not_open', chat, user }),
+      await buildChatAccessTraceWithAudit({ action: 'chat_send_media', reason: 'chat_not_open', chat, user }),
       'CHAT_SEND_DENIED'
     );
   }

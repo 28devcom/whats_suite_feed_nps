@@ -4,6 +4,8 @@ import env from '../../config/env.js';
 const ttlChat = env.cache.chatTtlSeconds;
 const ttlMessages = env.cache.messagesTtlSeconds;
 const ttlAssignment = env.cache.assignmentTtlSeconds;
+const chatCacheEnabled = ttlChat > 0;
+const assignmentCacheEnabled = ttlAssignment > 0;
 
 const keyChat = (chatId) => `cache:chat:${chatId}`;
 const keyMessages = (chatId) => `cache:chat:${chatId}:messages`;
@@ -23,17 +25,20 @@ const safeJson = {
 
 export const cacheChat = async (chat) => {
   if (!chat?.id) return;
+  if (!chatCacheEnabled) return;
   await ensureRedisConnection();
   await redisClient.set(keyChat(chat.id), safeJson.stringify(chat), { EX: ttlChat });
 };
 
 export const getCachedChat = async (chatId) => {
+  if (!chatCacheEnabled) return null;
   await ensureRedisConnection();
   const raw = await redisClient.get(keyChat(chatId));
   return safeJson.parse(raw);
 };
 
 export const invalidateChat = async (chatId) => {
+  if (!chatCacheEnabled && !assignmentCacheEnabled) return;
   await ensureRedisConnection();
   await redisClient.del(keyChat(chatId), keyMessages(chatId), keyAssignment(chatId));
 };
@@ -52,17 +57,20 @@ export const getCachedMessages = async (chatId) => {
 
 export const cacheAssignment = async (chatId, assignment) => {
   if (!chatId) return;
+  if (!assignmentCacheEnabled) return;
   await ensureRedisConnection();
   await redisClient.set(keyAssignment(chatId), safeJson.stringify(assignment), { EX: ttlAssignment });
 };
 
 export const getCachedAssignment = async (chatId) => {
+  if (!assignmentCacheEnabled) return null;
   await ensureRedisConnection();
   const raw = await redisClient.get(keyAssignment(chatId));
   return safeJson.parse(raw);
 };
 
 export const invalidateAssignment = async (chatId) => {
+  if (!assignmentCacheEnabled) return;
   await ensureRedisConnection();
   await redisClient.del(keyAssignment(chatId));
 };

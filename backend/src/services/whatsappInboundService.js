@@ -14,6 +14,7 @@ import {
 } from '../infra/db/chatMessageRepository.js';
 import { updateSessionSyncTracking } from '../infra/db/whatsappSessionRepository.js';
 import { recordChatAudit } from '../infra/db/chatAuditRepository.js';
+import { recordChatAssignmentAudit } from '../infra/db/chatAssignmentAuditRepository.js';
 import { emitToUsers, emitToRoles } from '../infra/realtime/socketHub.js';
 import { ROLES } from '../domain/user/user.js';
 import { buildMediaUrl } from '../shared/mediaUrl.js';
@@ -185,6 +186,8 @@ export const handleIncomingWhatsAppMessage = async ({
     const currentStatus = allowedStatuses.includes(chat.status) ? chat.status : 'UNASSIGNED';
     // Historia no debe reabrir chats; mantiene CLOSED. En vivo, reabre si estaba cerrado.
     const nextStatus = historyFlag ? 'CLOSED' : currentStatus === 'CLOSED' ? 'UNASSIGNED' : currentStatus;
+    const statusChanged = currentStatus !== nextStatus;
+    const previousAssignedAgentId = chat.assignedAgentId || null;
     chat = await touchChatOnInbound({
       chatId: chat.id,
       status: nextStatus,
@@ -195,6 +198,36 @@ export const handleIncomingWhatsAppMessage = async ({
       isArchived,
       isMuted
       });
+    if (statusChanged) {
+      await recordChatAudit({
+        actorUserId: null,
+        action: 'chat_status_updated',
+        chatId: chat.id,
+        queueId: chat.queueId,
+        ip: null,
+        metadata: {
+          previousStatus: currentStatus,
+          nextStatus,
+          reason: historyFlag ? 'history_sync' : 'inbound_message',
+          messageId: messageId || null,
+          sessionName,
+          previousAssignedAgentId
+        }
+      }).catch(() => {});
+      if (nextStatus === 'UNASSIGNED' && previousAssignedAgentId) {
+        await recordChatAssignmentAudit({
+          chatId: chat.id,
+          previousAgentId: previousAssignedAgentId,
+          newAgentId: null,
+          action: 'UNASSIGN',
+          executedByUserId: null,
+          reason: historyFlag ? 'history_reopen_unassign' : 'inbound_reopen_unassign',
+          validatedQueue: true,
+          fromConnectionId: chat.whatsappSessionName,
+          toConnectionId: null
+        }).catch(() => {});
+      }
+    }
     if (!chat.queueId && queueId) {
       chat = await setChatQueue(chat.id, queueId);
       if (queueResolution.multiple) {

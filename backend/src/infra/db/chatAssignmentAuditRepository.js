@@ -65,3 +65,30 @@ export const recordChatAssignmentAudit = async ({
     ]
   );
 };
+
+export const getLatestChatAssignmentAudit = async (chatId) => {
+  if (!chatId) return null;
+  await ensureAuditSchema();
+  const { rows } = await pool.query(
+    `SELECT action, reason, executed_by_user_id, previous_agent_id, new_agent_id,
+            from_connection_id, to_connection_id, validated_queue, created_at
+     FROM chat_assignment_audit
+     WHERE chat_id = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [chatId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    action: row.action,
+    reason: row.reason,
+    executedByUserId: row.executed_by_user_id,
+    previousAgentId: row.previous_agent_id,
+    newAgentId: row.new_agent_id,
+    fromConnectionId: row.from_connection_id,
+    toConnectionId: row.to_connection_id,
+    validatedQueue: row.validated_queue,
+    createdAt: row.created_at
+  };
+};
