@@ -315,22 +315,26 @@ const ChatView = () => {
   }, [getMessageKey, hasRenderableContent]);
 
   const handleChatAccessLost = useCallback(
-    (message = 'Este chat ya no está asignado o autorizado') => {
+    (message = 'Este chat ya no está asignado o autorizado', meta = {}) => {
       const currentChatId = activeChatIdRef.current;
       if (!currentChatId) return;
+      const flags = [];
+      if (meta?.source) flags.push(`origen=${meta.source}`);
+      if (meta?.reason) flags.push(`motivo=${meta.reason}`);
+      const flaggedMessage = flags.length ? `${message} [${flags.join(' ')}]` : message;
       setActiveChatId(null);
       delete messageCursorRef.current[currentChatId];
       delete hasMoreRef.current[currentChatId];
-      setSnackbar({ severity: 'warning', message });
+      setSnackbar({ severity: 'warning', message: flaggedMessage });
       // Refrescar la lista para que refleje el estado real (asignado o no) sin expulsar al usuario.
       loadChats().catch(() => {});
     },
     [loadChats]
   );
 
-  const handleError = (err) => {
+  const handleError = (err, meta = {}) => {
     if (err instanceof ApiError && err.status === 403) {
-      handleChatAccessLost('Chat ya no disponible para tu usuario');
+      handleChatAccessLost('Chat ya no disponible para tu usuario', meta);
       return;
     }
     let msg = err instanceof ApiError ? err.message : err?.message || 'Error';
@@ -350,7 +354,7 @@ const ChatView = () => {
         quickReplyCacheRef.current.set(cacheKey, items);
         return items;
       } catch (err) {
-        handleError(err);
+        handleError(err, { source: 'quick_reply_search' });
         return [];
       }
     },
@@ -373,7 +377,7 @@ const ChatView = () => {
         setSnackbar({ severity: 'success', message: 'Respuesta rápida enviada' });
         return normalizedMessage;
       } catch (err) {
-        handleError(err);
+        handleError(err, { source: 'quick_reply_send' });
         throw err;
       }
     },
@@ -567,7 +571,7 @@ const ChatView = () => {
       }
       setNewChatOpen(false);
     } catch (err) {
-      handleError(err);
+      handleError(err, { source: 'create_chat' });
     } finally {
       setNewChatLoading(false);
     }
@@ -830,7 +834,7 @@ const ChatView = () => {
         setActiveChatId(visible[0].id);
       }
     } catch (err) {
-      handleError(err);
+      handleError(err, { source: 'load_chats' });
     } finally {
       if (append) setLoadingMoreChats(false);
       else setLoading(false);
@@ -867,7 +871,7 @@ const ChatView = () => {
         setScrollKey((k) => k + 1);
       }
     } catch (err) {
-      handleError(err);
+      handleError(err, { source: 'load_messages' });
     } finally {
       if (prepend) setLoadingMoreFor(chatId, false);
       else setLoadingMsgs(false);
@@ -977,7 +981,7 @@ const ChatView = () => {
       await loadChats();
       if (role !== 'AGENTE') await loadMessages(activeChatId);
     } catch (err) {
-      handleError(err);
+      handleError(err, { source: 'close_chat' });
     }
   };
 
@@ -1039,7 +1043,7 @@ const ChatView = () => {
           message: `Valida la página de conexiones para la conexión: ${connName}`
         });
       } else {
-        handleError(err);
+        handleError(err, { source: 'send_message' });
       }
       throw err;
     }
@@ -1070,7 +1074,7 @@ const ChatView = () => {
       setSnackbar({ severity: 'success', message: 'Mensaje eliminado para cliente' });
       setDeleteTarget(null);
     } catch (err) {
-      handleError(err);
+      handleError(err, { source: 'delete_message' });
     } finally {
       setModerating((prev) => ({ ...prev, delete: false }));
     }
@@ -1092,7 +1096,7 @@ const ChatView = () => {
       await loadMessages(activeChatId);
       setSnackbar({ severity: 'success', message: 'Chat asignado' });
     } catch (err) {
-      handleError(err);
+      handleError(err, { source: 'assign_chat' });
     }
   };
 
@@ -1812,7 +1816,7 @@ const ChatView = () => {
               await loadMessages(updated.id);
             }
           } catch (err) {
-            handleError(err);
+            handleError(err, { source: 'reassign_chat' });
           }
         }}
         loading={loading || loadingMsgs}
