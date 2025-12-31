@@ -2,7 +2,8 @@ import logger from '../infra/logging/logger.js';
 import { getQueueIdsForSession } from '../infra/db/queueConnectionRepository.js';
 import {
   createChatRecord,
-  getChatBySessionAndRemote,
+  findOpenChatBySession,
+  findLatestClosedChatBySession,
   touchChatOnInbound,
   setChatQueue
 } from '../infra/db/chatRepository.js';
@@ -91,7 +92,10 @@ export const handleIncomingWhatsAppMessage = async ({
       logger.debug({ sessionName, remoteNumber, messageId, tag: LOG_TAG }, 'Skipping protocol-only outbound message');
       return null;
     }
-    let chat = await getChatBySessionAndRemote(sessionName, remoteNumber);
+    let chat = await findOpenChatBySession({ tenantId, sessionName, remoteNumber });
+    if (!chat) {
+      chat = await findLatestClosedChatBySession({ tenantId, sessionName, remoteNumber });
+    }
     if (!chat) {
       const historyQueue = await resolveQueueForSession(sessionName);
       chat = await createChatRecord({
@@ -165,7 +169,10 @@ export const handleIncomingWhatsAppMessage = async ({
   const queueResolution = await resolveQueueForSession(sessionName);
   const queueId = queueResolution.queueId;
 
-  let chat = await getChatBySessionAndRemote(sessionName, remoteNumber);
+  let chat = await findOpenChatBySession({ tenantId, sessionName, remoteNumber });
+  if (!chat) {
+    chat = await findLatestClosedChatBySession({ tenantId, sessionName, remoteNumber });
+  }
   if (!chat) {
       chat = await createChatRecord({
         sessionName,
