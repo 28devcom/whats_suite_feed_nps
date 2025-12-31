@@ -334,7 +334,8 @@ const ChatView = () => {
 
   const handleError = (err, meta = {}) => {
     if (err instanceof ApiError && err.status === 403) {
-      handleChatAccessLost('Chat ya no disponible para tu usuario', meta);
+      const reason = err.details?.reason || err.details?.action || err.details?.flag || null;
+      handleChatAccessLost('Chat ya no disponible para tu usuario', { ...meta, reason: meta.reason || reason });
       return;
     }
     let msg = err instanceof ApiError ? err.message : err?.message || 'Error';

@@ -1,4 +1,5 @@
 import { AppError } from '../shared/errors.js';
+import { buildChatAccessTrace } from '../shared/chatAccessTrace.js';
 import { getChatById, getUserQueueIds, isUserInQueue, setChatQueue } from '../infra/db/chatRepository.js';
 import { insertMessage, listMessagesByChat } from '../infra/db/chatMessageRepository.js';
 import { recordAuditLog } from '../infra/db/auditRepository.js';
@@ -29,15 +30,35 @@ const logChatMsgAudit = async ({ actorId, action, chatId, ip, metadata }) => {
   });
 };
 
+const accessError = (message, trace, code = 'CHAT_ACCESS_DENIED') => new AppError(message, 403, trace, code);
+
 const ensureSendPermission = async (chat, user) => {
-  if (!chat || !user) throw new AppError('No autorizado', 403);
+  const action = 'chat_send';
+  if (!chat || !user) {
+    throw accessError(
+      'No autorizado',
+      buildChatAccessTrace({ action, reason: 'missing_chat_or_user', chat, user }),
+      'CHAT_SEND_DENIED'
+    );
+  }
   if (chat.status === 'CLOSED') {
-    throw new AppError('Chat no está abierto para enviar mensajes', 403);
+    throw accessError(
+      'Chat no está abierto para enviar mensajes',
+      buildChatAccessTrace({ action, reason: 'chat_closed', chat, user }),
+      'CHAT_SEND_DENIED'
+    );
   }
   const isSupervisor = user.role === 'SUPERVISOR' || user.role === 'ADMIN';
   if (chat.queueId) {
     const inQueue = await isUserInQueue(user.id, chat.queueId);
-    if (!inQueue && !isSupervisor) throw new AppError('No autorizado a enviar en este chat', 403);
+    if (!inQueue && !isSupervisor) {
+      const queueIds = await getUserQueueIds(user.id).catch(() => null);
+      throw accessError(
+        'No autorizado a enviar en este chat',
+        buildChatAccessTrace({ action, reason: 'out_of_queue', chat, user, queueIds }),
+        'CHAT_SEND_DENIED'
+      );
+    }
   }
 
   if (isSupervisor) return;
@@ -45,21 +66,39 @@ const ensureSendPermission = async (chat, user) => {
   // AGENTE: solo si es el asignado
   if (user.role === 'AGENTE') {
     if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
-      throw new AppError('Chat no asignado a este agente', 403);
+      throw accessError(
+        'Chat no asignado a este agente',
+        buildChatAccessTrace({ action, reason: 'agent_not_assigned', chat, user }),
+        'CHAT_SEND_DENIED'
+      );
     }
   }
 };
 
 const resolveQueueForSessionOrThrow = async (sessionName, user) => {
-  const queueIds = await getQueueIdsForSession(sessionName);
-  if (!queueIds || queueIds.length === 0) return { queueId: null };
-  if (queueIds.length > 1) {
+  const sessionQueueIds = await getQueueIdsForSession(sessionName);
+  if (!sessionQueueIds || sessionQueueIds.length === 0) return { queueId: null };
+  if (sessionQueueIds.length > 1) {
     throw new AppError('La sesión está vinculada a múltiples colas. Selecciona una antes de continuar.', 400);
   }
-  const queueId = queueIds[0];
+  const queueId = sessionQueueIds[0];
   if (user.role !== 'ADMIN') {
     const inQueue = await isUserInQueue(user.id, queueId);
-    if (!inQueue) throw new AppError('No perteneces a la cola configurada para este chat', 403);
+    if (!inQueue) {
+      const userQueues = await getUserQueueIds(user.id).catch(() => null);
+      throw accessError(
+        'No perteneces a la cola configurada para este chat',
+        buildChatAccessTrace({
+          action: 'chat_send',
+          reason: 'out_of_queue',
+          chat: null,
+          user,
+          queueIds: userQueues,
+          extra: { queueId, sessionName }
+        }),
+        'CHAT_SEND_DENIED'
+      );
+    }
   }
   return { queueId };
 };
@@ -86,7 +125,11 @@ const logReadDeny = (reason, { chat, user, queueIds = null }) => {
 const ensureReadPermission = async (chat, user) => {
   if (!chat || !user) {
     logReadDeny('missing_chat_or_user', { chat, user });
-    throw new AppError('No autorizado a ver este chat', 403);
+    throw accessError(
+      'No autorizado a ver este chat',
+      buildChatAccessTrace({ action: 'chat_read', reason: 'missing_chat_or_user', chat, user }),
+      'CHAT_READ_DENIED'
+    );
   }
   if (user.role === 'ADMIN') return;
 
@@ -96,19 +139,31 @@ const ensureReadPermission = async (chat, user) => {
   if (!inQueue) {
     // ISO 27001: control de acceso por cola; evita fuga de chats entre equipos
     logReadDeny('out_of_queue', { chat, user, queueIds });
-    throw new AppError('No autorizado a ver este chat', 403);
+    throw accessError(
+      'No autorizado a ver este chat',
+      buildChatAccessTrace({ action: 'chat_read', reason: 'out_of_queue', chat, user, queueIds }),
+      'CHAT_READ_DENIED'
+    );
   }
 
   if (user.role === 'SUPERVISOR') return;
   if (user.role === 'AGENTE') {
     if (chat.status !== 'OPEN' || chat.assignedAgentId !== user.id) {
       logReadDeny('agent_not_owner_or_closed', { chat, user, queueIds });
-      throw new AppError('No autorizado a ver este chat', 403);
+      throw accessError(
+        'No autorizado a ver este chat',
+        buildChatAccessTrace({ action: 'chat_read', reason: 'agent_not_owner_or_closed', chat, user, queueIds }),
+        'CHAT_READ_DENIED'
+      );
     }
     return;
   }
   logReadDeny('role_not_allowed', { chat, user, queueIds });
-  throw new AppError('No autorizado a ver este chat', 403);
+  throw accessError(
+    'No autorizado a ver este chat',
+    buildChatAccessTrace({ action: 'chat_read', reason: 'role_not_allowed', chat, user, queueIds }),
+    'CHAT_READ_DENIED'
+  );
 };
 
 const emitChatEvents = async (chat, message, { actorUserId = null } = {}) => {
@@ -270,7 +325,13 @@ export const sendMediaMessage = async ({ chatId, file, caption = '', user, ip = 
     }
   }
   await ensureSendPermission(chat, user);
-  if (chat.status !== 'OPEN') throw new AppError('Chat no está abierto para enviar media', 403);
+  if (chat.status !== 'OPEN') {
+    throw accessError(
+      'Chat no está abierto para enviar media',
+      buildChatAccessTrace({ action: 'chat_send_media', reason: 'chat_not_open', chat, user }),
+      'CHAT_SEND_DENIED'
+    );
+  }
   if (!file?.buffer || !file.mimetype) throw new AppError('Archivo inválido', 400);
   const rawNumber = String(chat.remoteJid || chat.remoteNumber || '').replace(/[^\d]/g, '');
   const normalizedNumber = normalizeWhatsAppNumber(rawNumber);

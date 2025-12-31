@@ -1,4 +1,5 @@
 import { AppError } from '../shared/errors.js';
+import { buildChatAccessTrace } from '../shared/chatAccessTrace.js';
 import {
   findMessageByUniqueKey,
   findMessageByWhatsappId,
@@ -13,8 +14,15 @@ import { sendWhatsAppMessage } from './whatsappService.js';
 
 const isUuid = (val) => typeof val === 'string' && /^[0-9a-fA-F-]{36}$/.test(val);
 
+const accessError = (message, trace, code = 'CHAT_MESSAGE_DELETE_DENIED') => new AppError(message, 403, trace, code);
+
 const ensureVisibility = async (chat, user) => {
-  if (!chat || !user) throw new AppError('No autorizado', 403);
+  if (!chat || !user) {
+    throw accessError(
+      'No autorizado',
+      buildChatAccessTrace({ action: 'chat_message_delete', reason: 'missing_chat_or_user', chat, user })
+    );
+  }
   if (user.role === ROLES.ADMIN || user.role === ROLES.SUPERVISOR) return true;
   if (user.role === ROLES.AGENTE) {
     if (chat.assignedAgentId === user.id) return true;
@@ -23,7 +31,16 @@ const ensureVisibility = async (chat, user) => {
       if (inQueue) return true;
     }
   }
-  throw new AppError('No autorizado', 403);
+  const reason =
+    user.role === ROLES.AGENTE && chat.assignedAgentId && chat.assignedAgentId !== user.id
+      ? 'agent_not_owner'
+      : chat.queueId
+        ? 'out_of_queue'
+        : 'role_not_allowed';
+  throw accessError(
+    'No autorizado',
+    buildChatAccessTrace({ action: 'chat_message_delete', reason, chat, user })
+  );
 };
 
 const loadMessageByIdOrWhatsapp = async (messageId) => {

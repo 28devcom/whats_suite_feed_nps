@@ -1,4 +1,5 @@
 import { AppError } from '../shared/errors.js';
+import { buildChatAccessTrace } from '../shared/chatAccessTrace.js';
 import {
   getChatById,
   assignChatDb,
@@ -15,6 +16,7 @@ import { emitToUsers, emitToRoles } from '../infra/realtime/socketHub.js';
 import { emitChatReassignedEvent } from '../infra/realtime/chatEvents.js';
 
 const LOG_TAG = 'CHAT_REASSIGN';
+const accessError = (message, trace, code = 'CHAT_REASSIGN_DENIED') => new AppError(message, 403, trace, code);
 
 const assertQueueCompatibility = async (agentId, queueId) => {
   if (!queueId) return true; // Chats sin cola: permitido.
@@ -29,12 +31,32 @@ const assertSessionExists = async (sessionName) => {
 const isSupervisor = (role) => role === 'ADMIN' || role === 'SUPERVISOR';
 
 export const reassignChat = async ({ chatId, toAgentId, reason = null, user, sessionName = null }) => {
-  if (!user) throw new AppError('No autorizado a reasignar', 403);
+  if (!user) {
+    throw accessError(
+      'No autorizado a reasignar',
+      buildChatAccessTrace({
+        action: 'chat_reassign',
+        reason: 'missing_user',
+        chat: chatId ? { id: chatId } : null,
+        user,
+        extra: { toAgentId, sessionName }
+      })
+    );
+  }
   const supervisorRole = isSupervisor(user.role);
   const isAgent = user.role === 'AGENTE';
   if (!supervisorRole && !isAgent) {
     logger.warn({ userId: user?.id, role: user?.role, tag: LOG_TAG }, 'Reassign blocked: insufficient role');
-    throw new AppError('No autorizado a reasignar', 403);
+    throw accessError(
+      'No autorizado a reasignar',
+      buildChatAccessTrace({
+        action: 'chat_reassign',
+        reason: 'role_not_allowed',
+        chat: chatId ? { id: chatId } : null,
+        user,
+        extra: { toAgentId, sessionName }
+      })
+    );
   }
   if (!chatId || !toAgentId) throw new AppError('Parámetros incompletos para reasignar', 400);
 
@@ -47,17 +69,53 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
 
   if (isAgent) {
     if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
-      throw new AppError('Solo puedes transferir chats asignados a ti', 403);
+      throw accessError(
+        'Solo puedes transferir chats asignados a ti',
+        buildChatAccessTrace({
+          action: 'chat_reassign',
+          reason: 'agent_not_owner',
+          chat,
+          user,
+          extra: { toAgentId, sessionName }
+        })
+      );
     }
     if (!chat.queueId) {
-      throw new AppError('Solo puedes transferir chats con cola asignada', 403);
+      throw accessError(
+        'Solo puedes transferir chats con cola asignada',
+        buildChatAccessTrace({
+          action: 'chat_reassign',
+          reason: 'agent_missing_queue',
+          chat,
+          user,
+          extra: { toAgentId, sessionName }
+        })
+      );
     }
     const actorInQueue = await assertQueueCompatibility(user.id, chat.queueId);
     if (!actorInQueue) {
-      throw new AppError('No puedes transferir chats fuera de tu cola', 403);
+      throw accessError(
+        'No puedes transferir chats fuera de tu cola',
+        buildChatAccessTrace({
+          action: 'chat_reassign',
+          reason: 'actor_out_of_queue',
+          chat,
+          user,
+          extra: { toAgentId, sessionName }
+        })
+      );
     }
     if (sessionName && sessionName !== chat.whatsappSessionName) {
-      throw new AppError('No puedes cambiar la conexión al transferir el chat', 403);
+      throw accessError(
+        'No puedes cambiar la conexión al transferir el chat',
+        buildChatAccessTrace({
+          action: 'chat_reassign',
+          reason: 'agent_session_change_denied',
+          chat,
+          user,
+          extra: { toAgentId, sessionName }
+        })
+      );
     }
   }
 
@@ -70,7 +128,16 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
       { chatId, queueId: chat.queueId, toAgentId, tag: LOG_TAG },
       'Reassign blocked: agent not in queue'
     );
-    throw new AppError('Agente destino no pertenece a la cola del chat', 403);
+    throw accessError(
+      'Agente destino no pertenece a la cola del chat',
+      buildChatAccessTrace({
+        action: 'chat_reassign',
+        reason: 'target_agent_out_of_queue',
+        chat,
+        user,
+        extra: { toAgentId, sessionName: targetSession }
+      })
+    );
   }
 
   // Requisito: ambos agentes deben compartir la cola
@@ -81,7 +148,16 @@ export const reassignChat = async ({ chatId, toAgentId, reason = null, user, ses
         { chatId, queueId: chat.queueId, fromAgentId: chat.assignedAgentId, tag: LOG_TAG },
         'Reassign blocked: origin agent not in queue'
       );
-      throw new AppError('Agente origen no pertenece a la cola del chat', 403);
+      throw accessError(
+        'Agente origen no pertenece a la cola del chat',
+        buildChatAccessTrace({
+          action: 'chat_reassign',
+          reason: 'origin_agent_out_of_queue',
+          chat,
+          user,
+          extra: { toAgentId, sessionName: targetSession }
+        })
+      );
     }
   }
 

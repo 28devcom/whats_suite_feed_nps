@@ -1,9 +1,11 @@
 import { AppError } from '../shared/errors.js';
+import { buildChatAccessTrace } from '../shared/chatAccessTrace.js';
 import {
   getChatById,
   assignChatDb,
   unassignChatDb,
   isUserInQueue,
+  getUserQueueIds,
   listChatCountsByVisibility,
   listChatsByVisibilityCursor,
   hasOpenChatConflict,
@@ -41,6 +43,8 @@ const logChatAudit = async ({ actorId, action, chatId, ip, metadata }) => {
   });
 };
 
+const accessError = (message, trace, code = 'CHAT_ACCESS_DENIED') => new AppError(message, 403, trace, code);
+
 export const assignChat = async (chatId, user, { ip = null } = {}) => {
   const chat = await getChatById(chatId);
   if (!chat) throw new AppError('Chat no encontrado', 404);
@@ -48,7 +52,14 @@ export const assignChat = async (chatId, user, { ip = null } = {}) => {
   // Solo agentes de la cola
   const isSupervisor = user.role === 'SUPERVISOR' || user.role === 'ADMIN';
   const allowed = isSupervisor ? true : await isUserInQueue(user.id, chat.queueId);
-  if (!allowed) throw new AppError('No puedes asignarte un chat fuera de tus colas', 403);
+  if (!allowed) {
+    const queueIds = await getUserQueueIds(user.id).catch(() => null);
+    throw accessError(
+      'No puedes asignarte un chat fuera de tus colas',
+      buildChatAccessTrace({ action: 'chat_assign', reason: 'out_of_queue', chat, user, queueIds }),
+      'CHAT_ASSIGN_DENIED'
+    );
+  }
 
   const wasClosed = chat.status === 'CLOSED';
 
@@ -71,7 +82,17 @@ export const assignChat = async (chatId, user, { ip = null } = {}) => {
       { chatId, userId: user.id, role: user.role, currentAssignee: chat.assignedAgentId, tag: 'CHAT_SECURITY' },
       'Reassign attempt blocked for non-supervisor'
     );
-    throw new AppError('No autorizado a reasignar este chat', 403);
+    throw accessError(
+      'No autorizado a reasignar este chat',
+      buildChatAccessTrace({
+        action: 'chat_assign',
+        reason: 'reassign_not_allowed',
+        chat,
+        user,
+        extra: { currentAssignee: chat.assignedAgentId }
+      }),
+      'CHAT_ASSIGN_DENIED'
+    );
   }
 
   const updated = await assignChatDb(chatId, user.id, { actorUserId: user.id });
@@ -110,11 +131,22 @@ export const unassignChat = async (chatId, user, { ip = null } = {}) => {
   // Supervisor/Admin pueden, agente solo si es el asignado
   const isSupervisor = user.role === 'SUPERVISOR' || user.role === 'ADMIN';
   const allowedQueue = await isUserInQueue(user.id, chat.queueId);
-  if (!allowedQueue) throw new AppError('No puedes operar chats fuera de tus colas', 403);
+  if (!allowedQueue) {
+    const queueIds = await getUserQueueIds(user.id).catch(() => null);
+    throw accessError(
+      'No puedes operar chats fuera de tus colas',
+      buildChatAccessTrace({ action: 'chat_unassign', reason: 'out_of_queue', chat, user, queueIds }),
+      'CHAT_UNASSIGN_DENIED'
+    );
+  }
 
   if (!isSupervisor) {
     if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
-      throw new AppError('No puedes desasignar este chat', 403);
+      throw accessError(
+        'No puedes desasignar este chat',
+        buildChatAccessTrace({ action: 'chat_unassign', reason: 'not_owner', chat, user }),
+        'CHAT_UNASSIGN_DENIED'
+      );
     }
   }
 
@@ -156,11 +188,22 @@ export const closeChat = async (chatId, user, { ip = null } = {}) => {
   const chat = await getChatById(chatId);
   if (!chat) throw new AppError('Chat no encontrado', 404);
   const inQueue = await isUserInQueue(user.id, chat.queueId);
-  if (!inQueue) throw new AppError('No autorizado a operar este chat', 403);
+  if (!inQueue) {
+    const queueIds = await getUserQueueIds(user.id).catch(() => null);
+    throw accessError(
+      'No autorizado a operar este chat',
+      buildChatAccessTrace({ action: 'chat_close', reason: 'out_of_queue', chat, user, queueIds }),
+      'CHAT_CLOSE_DENIED'
+    );
+  }
   const isSupervisor = user.role === 'SUPERVISOR' || user.role === 'ADMIN';
   if (!isSupervisor) {
     if (!chat.assignedAgentId || chat.assignedAgentId !== user.id) {
-      throw new AppError('No autorizado a cerrar este chat', 403);
+      throw accessError(
+        'No autorizado a cerrar este chat',
+        buildChatAccessTrace({ action: 'chat_close', reason: 'not_owner', chat, user }),
+        'CHAT_CLOSE_DENIED'
+      );
     }
   }
   const { rows } = await pool.query(
@@ -212,7 +255,14 @@ export const reopenChat = async (chatId, user, { ip = null } = {}) => {
   const chat = await getChatById(chatId);
   if (!chat) throw new AppError('Chat no encontrado', 404);
   const inQueue = await isUserInQueue(user.id, chat.queueId);
-  if (!inQueue) throw new AppError('No autorizado a operar este chat', 403);
+  if (!inQueue) {
+    const queueIds = await getUserQueueIds(user.id).catch(() => null);
+    throw accessError(
+      'No autorizado a operar este chat',
+      buildChatAccessTrace({ action: 'chat_reopen', reason: 'out_of_queue', chat, user, queueIds }),
+      'CHAT_REOPEN_DENIED'
+    );
+  }
   const nextStatus = chat.assignedAgentId ? 'OPEN' : 'UNASSIGNED';
   const { rows } = await pool.query(
     `UPDATE chats SET status = $1, closed_at = NULL, updated_at = NOW() WHERE id = $2 RETURNING *`,
@@ -259,14 +309,34 @@ export const createOrReopenChat = async ({ sessionName, contact, queueId }, user
     ? await connectionExists(trimmedSession)
     : await userHasConnection(user?.id || null, trimmedSession);
   if (!allowedConnection) {
-    throw new AppError('Conexión no asignada a tus colas', 403);
+    throw accessError(
+      'Conexión no asignada a tus colas',
+      buildChatAccessTrace({
+        action: 'chat_create',
+        reason: 'connection_not_allowed',
+        chat: null,
+        user,
+        extra: { sessionName: trimmedSession }
+      }),
+      'CHAT_CREATE_DENIED'
+    );
   }
 
   const queuesForConnection = isPrivileged
     ? await listQueuesForSession(trimmedSession)
     : await listQueuesForSessionAndUser(trimmedSession, user?.id || null);
   if (!queuesForConnection.length) {
-    throw new AppError('No tienes colas asignadas para esta conexión', 403);
+    throw accessError(
+      'No tienes colas asignadas para esta conexión',
+      buildChatAccessTrace({
+        action: 'chat_create',
+        reason: 'no_queues_for_connection',
+        chat: null,
+        user,
+        extra: { sessionName: trimmedSession }
+      }),
+      'CHAT_CREATE_DENIED'
+    );
   }
   const requestedQueueId = queueId ? String(queueId) : null;
   let targetQueueId = null;
