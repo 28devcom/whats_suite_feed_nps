@@ -110,7 +110,7 @@ const loadState = async (sessionName) => {
   });
 };
 
-const persistState = async (sessionName, { creds, keys, status = 'pending' }) => {
+const persistState = async (sessionName, { creds, keys, status = 'pending', replace = false }) => {
   return withSessionLock(sessionName, async (client) => {
     const current = await client.query(
       'SELECT creds, keys FROM whatsapp_sessions WHERE session_name = $1 FOR UPDATE',
@@ -118,8 +118,8 @@ const persistState = async (sessionName, { creds, keys, status = 'pending' }) =>
     );
     const dbCreds = current.rowCount ? sanitizeCreds(decode(current.rows[0].creds, initAuthCreds())) : initAuthCreds();
     const dbKeys = current.rowCount ? sanitizeKeys(decode(current.rows[0].keys, {})) : {};
-    const mergedCreds = creds || dbCreds;
-    const mergedKeys = keys ? mergeKeys(dbKeys, sanitizeKeys(keys)) : dbKeys;
+    const mergedCreds = replace ? sanitizeCreds(creds || initAuthCreds()) : creds || dbCreds;
+    const mergedKeys = replace ? sanitizeKeys(keys || {}) : keys ? mergeKeys(dbKeys, sanitizeKeys(keys)) : dbKeys;
 
     const tenantId = await resolveTenantId();
     await client.query(
@@ -230,7 +230,7 @@ export const createPostgresAuthState = async (sessionName = 'default') => {
     resetState: async () => {
       creds = initAuthCreds();
       keys = {};
-      await persistState(name, { creds, keys, status: 'pending' });
+      await persistState(name, { creds, keys, status: 'pending', replace: true });
     },
     getKeysSnapshot: () => keys
   };

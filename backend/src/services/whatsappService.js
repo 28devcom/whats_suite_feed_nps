@@ -1,5 +1,6 @@
 import { AppError } from '../shared/errors.js';
 import createWhatsAppSocket, { requestPairingCode as requestPairingCodeRaw } from '../whatsapp/whatsappSocket.js';
+import { createPostgresAuthState } from '../whatsapp/whatsappAuthState.js';
 import { recordWhatsAppAudit } from '../infra/db/whatsappAuditRepository.js';
 import { recordWhatsAppError } from '../infra/db/whatsappErrorRepository.js';
 import { WhatsAppErrorMessages } from '../whatsapp/whatsappErrors.js';
@@ -36,6 +37,35 @@ let lastHistoryDaysFetch = 0;
 const HISTORY_CACHE_MS = 5 * 60 * 1000;
 
 const normalizeSessionName = (name) => (name || 'default').trim() || 'default';
+
+const normalizeKeysPayload = (keys) => {
+  if (!keys) return {};
+  if (typeof keys === 'string') {
+    try {
+      const parsed = JSON.parse(keys);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (_err) {
+      return {};
+    }
+  }
+  return keys && typeof keys === 'object' && !Array.isArray(keys) ? keys : {};
+};
+
+const hasStoredKeysSnapshot = (keysPayload) => {
+  const keys = normalizeKeysPayload(keysPayload);
+  const buckets = ['preKeys', 'sessions', 'senderKeys', 'appStateSyncKeys'];
+  return buckets.some((bucket) => Object.keys(keys?.[bucket] || {}).length > 0);
+};
+
+const getStoredKeysInfo = async (sessionName, tenantId = null) => {
+  const name = normalizeSessionName(sessionName);
+  const resolvedTenant = tenantId || await getTenantIdForSession(name, tenantId);
+  const { rows } = await pool.query(
+    'SELECT keys FROM whatsapp_sessions WHERE session_name = $1 AND tenant_id = $2 LIMIT 1',
+    [name, resolvedTenant]
+  );
+  return { hasStoredKeys: hasStoredKeysSnapshot(rows[0]?.keys) };
+};
 
 const resolveHistoryDays = async () => {
   const now = Date.now();
@@ -268,11 +298,13 @@ export const createSession = async (sessionName, { userId = null, ip = null, ten
 
 export const getQrForSession = async (sessionName, { tenantId = null } = {}) => {
   const record = await ensureSessionRecord(sessionName, { tenantId });
+  const { hasStoredKeys } = await getStoredKeysInfo(sessionName, record?.tenantId || tenantId);
   return {
     session: normalizeSessionName(sessionName),
     qr: record.lastQr?.qr || null,
     qrBase64: record.lastQr?.qrBase64 || null,
-    status: record.lastStatus || 'unknown'
+    status: record.lastStatus || 'unknown',
+    hasStoredKeys
   };
 };
 
@@ -340,7 +372,8 @@ export const getStatusForSession = async (sessionName, { tenantId = null } = {})
       syncHistory: false,
       historySyncStatus: 'idle',
       historySyncedAt: null,
-      historySyncProgress: {}
+      historySyncProgress: {},
+      hasStoredKeys: false
     };
   }
 
@@ -355,11 +388,13 @@ export const getStatusForSession = async (sessionName, { tenantId = null } = {})
       syncHistory: false,
       historySyncStatus: 'idle',
       historySyncedAt: null,
-      historySyncProgress: {}
+      historySyncProgress: {},
+      hasStoredKeys: false
     };
   }
 
   const record = await ensureSessionRecord(sessionName, { tenantId: config.tenantId });
+  const { hasStoredKeys } = await getStoredKeysInfo(name, record?.tenantId || config.tenantId);
   return {
     session: name,
     status: record.lastStatus || config.status || 'unknown',
@@ -368,11 +403,15 @@ export const getStatusForSession = async (sessionName, { tenantId = null } = {})
     syncHistory: record.syncHistory ?? config.syncHistory,
     historySyncStatus: record.historySyncStatus || config.historySyncStatus || 'idle',
     historySyncedAt: config.historySyncedAt || null,
-    historySyncProgress: config.historySyncProgress || {}
+    historySyncProgress: config.historySyncProgress || {},
+    hasStoredKeys
   };
 };
 
-export const reconnectSession = async (sessionName, { userId = null, ip = null, tenantId = null, userAgent = null } = {}) => {
+export const reconnectSession = async (
+  sessionName,
+  { userId = null, ip = null, tenantId = null, userAgent = null, resetAuth = false } = {}
+) => {
   const name = normalizeSessionName(sessionName);
   const existing = await ensureSessionRecord(name, { tenantId });
   if (existing) {
@@ -385,11 +424,21 @@ export const reconnectSession = async (sessionName, { userId = null, ip = null, 
   const promise = (async () => {
     if (existing?.controller?.sock) {
       try {
+        existing.controller.sock.ev?.removeAllListeners?.();
         existing.controller.sock.end();
       } catch (_err) {
         // ignore close errors
       }
       existing.controller.events.removeAllListeners();
+    }
+    if (resetAuth) {
+      try {
+        const auth = await createPostgresAuthState(name);
+        await auth.resetState();
+      } catch (err) {
+        logger.error({ err, sessionName: name, tag: LOG_TAG }, 'Failed to reset auth state');
+        throw err;
+      }
     }
     const controller = await createWhatsAppSocket(name);
     existing.lastQr = null;
@@ -414,6 +463,37 @@ export const reconnectSession = async (sessionName, { userId = null, ip = null, 
 
   reconnectLocks.set(name, promise);
   return promise;
+};
+
+export const renewQrSession = async (sessionName, { userId = null, ip = null, tenantId = null, userAgent = null } = {}) => {
+  const name = normalizeSessionName(sessionName);
+  const record = await ensureSessionRecord(name, { tenantId });
+  if (record) {
+    record.context = { userId, ip, userAgent };
+  }
+  const status = record?.lastStatus || 'unknown';
+  if (status !== 'pending') {
+    throw new AppError('La sesión no está en estado pendiente', 409);
+  }
+  const { hasStoredKeys } = await getStoredKeysInfo(name, record?.tenantId || tenantId);
+  if (!hasStoredKeys) {
+    throw new AppError('No hay claves guardadas para regenerar el QR', 400);
+  }
+  await recordWhatsAppAudit({
+    sessionName: name,
+    event: 'session_qr_renewed',
+    userId,
+    ip,
+    userAgent,
+    tenantId: record?.tenantId || tenantId
+  }).catch(() => {});
+  return reconnectSession(name, {
+    userId,
+    ip,
+    tenantId: record?.tenantId || tenantId,
+    userAgent,
+    resetAuth: true
+  });
 };
 
 export const shutdownWhatsAppSessions = async () => {
@@ -489,9 +569,16 @@ export const listSessions = async (tenantId = null) => {
           lastDisconnectAt: live.lastDisconnectAt || r.last_disconnect_at || null,
           lastConnectAt: live.lastConnectAt || r.last_connect_at || null,
           syncState: live.syncState || r.sync_state || 'IDLE',
-          syncError: live.syncError || r.sync_error || null
+          syncError: live.syncError || r.sync_error || null,
+          hasStoredKeys: live.hasStoredKeys ?? false
         };
       } catch (_err) {
+        let hasStoredKeys = false;
+        try {
+          ({ hasStoredKeys } = await getStoredKeysInfo(r.session_name, resolvedTenant));
+        } catch (_innerErr) {
+          hasStoredKeys = false;
+        }
         return {
           session: r.session_name,
           status: r.status || 'unknown',
@@ -506,7 +593,8 @@ export const listSessions = async (tenantId = null) => {
           lastDisconnectAt: r.last_disconnect_at || null,
           lastConnectAt: r.last_connect_at || null,
           syncState: r.sync_state || 'IDLE',
-          syncError: r.sync_error || null
+          syncError: r.sync_error || null,
+          hasStoredKeys
         };
       }
     })

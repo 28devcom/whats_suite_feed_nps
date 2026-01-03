@@ -26,7 +26,8 @@ const WhatsappConnectionsContent = () => {
       clearQr,
       clearPairing,
       loadExistingSessions,
-      updateSyncHistory
+      updateSyncHistory,
+      renewQr
     }
   } = useWhatsappSessions();
   const [newSessionId, setNewSessionId] = useState('');
@@ -93,9 +94,11 @@ const WhatsappConnectionsContent = () => {
         status={activeQrSession?.status}
         qr={activeQrSession?.qr}
         qrBase64={activeQrSession?.qrBase64}
+        hasStoredKeys={activeQrSession?.hasStoredKeys}
         loading={activeQrSession?.loading}
         error={activeQrSession?.error ? new Error(activeQrSession.error) : null}
         onClose={clearQr}
+        onRenewQr={renewQr}
       />
 
       <WhatsAppPairingCodeModal

@@ -6,6 +6,7 @@ import {
   getSessionQrApi,
   requestPairingCodeApi,
   reconnectSessionApi,
+  renewQrSessionApi,
   disconnectSessionApi,
   deleteSessionApi,
   updateSessionSettingsApi
@@ -113,6 +114,7 @@ export const WhatsappSessionsProvider = ({ children }) => {
           status,
           lastConnectedAt: statusResp.lastConnectedAt || null,
           hasConnected: Boolean(statusResp.lastConnectedAt || status === 'connected'),
+          hasStoredKeys: Boolean(statusResp.hasStoredKeys),
           syncHistory: Boolean(statusResp.syncHistory),
           historySyncStatus: statusResp.historySyncStatus || 'idle',
           historySyncedAt: statusResp.historySyncedAt || null,
@@ -190,6 +192,7 @@ export const WhatsappSessionsProvider = ({ children }) => {
           pairingCode: null,
           lastConnectedAt: statusResp.lastConnectedAt || null,
           hasConnected: Boolean(statusResp.lastConnectedAt || status === 'connected'),
+          hasStoredKeys: Boolean(statusResp.hasStoredKeys),
           syncHistory: Boolean(statusResp.syncHistory),
           historySyncStatus: statusResp.historySyncStatus || 'idle',
           historySyncedAt: statusResp.historySyncedAt || null,
@@ -234,12 +237,13 @@ export const WhatsappSessionsProvider = ({ children }) => {
                 status,
                 qr: statusResp.qr || null,
                 qrBase64: statusResp.qrBase64 || null,
-                pairingCode: null,
-                lastConnectedAt: statusResp.lastConnectedAt || null,
-                hasConnected: Boolean(statusResp.lastConnectedAt || status === 'connected'),
-                syncHistory: Boolean(statusResp.syncHistory),
-                historySyncStatus: statusResp.historySyncStatus || 'idle',
-                historySyncedAt: statusResp.historySyncedAt || null,
+              pairingCode: null,
+              lastConnectedAt: statusResp.lastConnectedAt || null,
+              hasConnected: Boolean(statusResp.lastConnectedAt || status === 'connected'),
+              hasStoredKeys: Boolean(statusResp.hasStoredKeys),
+              syncHistory: Boolean(statusResp.syncHistory),
+              historySyncStatus: statusResp.historySyncStatus || 'idle',
+              historySyncedAt: statusResp.historySyncedAt || null,
                 historySyncProgress: statusResp.historySyncProgress || {},
                 syncHistoryUpdating: false,
                 loading: false,
@@ -277,6 +281,7 @@ export const WhatsappSessionsProvider = ({ children }) => {
             lastConnectedAt: s.lastConnectedAt || null,
             updatedAt: s.updatedAt || null,
             hasConnected: Boolean(s.lastConnectedAt),
+            hasStoredKeys: Boolean(s.hasStoredKeys),
             syncHistory: Boolean(s.syncHistory),
             historySyncStatus: s.historySyncStatus || 'idle',
             historySyncedAt: s.historySyncedAt || null,
@@ -348,6 +353,7 @@ export const WhatsappSessionsProvider = ({ children }) => {
             qr: qrResp.qr || null,
             qrBase64: qrResp.qrBase64 || null,
             status: qrResp.status || 'pending',
+            hasStoredKeys: Boolean(qrResp.hasStoredKeys),
             loading: false
           }
         });
@@ -395,6 +401,27 @@ export const WhatsappSessionsProvider = ({ children }) => {
       } catch (err) {
         const message = await handleApiError(err, logout, dispatch, auditService, 'reconnect');
         dispatch({ type: 'SET_SESSION', id: sessionId, patch: { loading: false, error: message } });
+      }
+    },
+    [apiClientInstance, logout, syncSession, auditService, startPolling]
+  );
+
+  const renewQr = useCallback(
+    async (sessionId = 'default') => {
+      const cleanId = (sessionId || 'default').trim();
+      dispatch({
+        type: 'SET_SESSION',
+        id: cleanId,
+        patch: { loading: true, error: null, qr: null, qrBase64: null }
+      });
+      try {
+        await renewQrSessionApi(apiClientInstance, cleanId);
+        await syncSession(cleanId);
+        startPolling(cleanId);
+        auditService.sendEvent({ event: 'whatsapp_qr_renewed', metadata: { sessionId: cleanId } }).catch(() => {});
+      } catch (err) {
+        const message = await handleApiError(err, logout, dispatch, auditService, 'renew_qr');
+        dispatch({ type: 'SET_SESSION', id: cleanId, patch: { loading: false, error: message } });
       }
     },
     [apiClientInstance, logout, syncSession, auditService, startPolling]
@@ -476,6 +503,7 @@ export const WhatsappSessionsProvider = ({ children }) => {
           showQr,
           requestPairing,
           reconnect,
+          renewQr,
           disconnect,
           updateSyncHistory,
           setPhone,
@@ -496,6 +524,7 @@ export const WhatsappSessionsProvider = ({ children }) => {
       showQr,
       requestPairing,
       reconnect,
+      renewQr,
       disconnect,
       updateSyncHistory,
       setPhone

@@ -14,6 +14,8 @@ export const createWhatsappService = ({ getToken, onUnauthorized }) => {
     client.request(`/whatsapp/sessions/${sessionId}/pairing-code`, { method: 'POST', body: { phoneNumber } });
   const reconnect = async (sessionId = 'default') =>
     client.request(`/whatsapp/sessions/${sessionId}/reconnect`, { method: 'POST' });
+  const renewQr = async (sessionId = 'default') =>
+    client.request(`/whatsapp/sessions/${sessionId}/renew-qr`, { method: 'POST' });
   const disconnect = async (sessionId = 'default') =>
     client.request(`/whatsapp/sessions/${sessionId}/disconnect`, { method: 'POST' });
 
@@ -24,6 +26,7 @@ export const createWhatsappService = ({ getToken, onUnauthorized }) => {
     getQr,
     requestPairingCode,
     reconnect,
+    renewQr,
     disconnect
   };
 };

@@ -5,6 +5,7 @@ import {
   requestPairingCode,
   getStatusForSession,
   reconnectSession,
+  renewQrSession,
   disconnectSession,
   listSessions,
   deleteSession,
@@ -84,6 +85,21 @@ export const reconnectController = async (req, res, next) => {
   try {
     const sessionName = parseSessionName(req);
     const result = await reconnectSession(sessionName, {
+      userId: req.user?.id || null,
+      ip: clientIp(req),
+      tenantId: req.user?.tenantId || null,
+      userAgent: req.headers['user-agent'] || null
+    });
+    res.status(httpStatus.OK).json(ok(result));
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const renewQrController = async (req, res, next) => {
+  try {
+    const sessionName = parseSessionName(req);
+    const result = await renewQrSession(sessionName, {
       userId: req.user?.id || null,
       ip: clientIp(req),
       tenantId: req.user?.tenantId || null,
