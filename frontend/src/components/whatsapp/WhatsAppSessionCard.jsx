@@ -38,7 +38,7 @@ const WhatsAppSessionCard = ({
   const normalizedStatus = normalizeStatus(session.status);
   const waitingQr = normalizedStatus === 'pending' || normalizedStatus === 'connecting';
 
-  const canShowQr = !connected && (waitingQr || !everConnected);
+  const canShowQr = !connected;
   const canRenewQr = normalizedStatus === 'pending' && session.hasStoredKeys;
   const canPair = !everConnected && !connected;
   const canReconnect = everConnected && !connected;
