@@ -166,8 +166,6 @@ export const createPostgresAuthState = async (sessionName = 'default') => {
         const value = keys?.[norm]?.[id] ?? keys?.[type]?.[id];
         if (value !== undefined) {
           result[id] = value;
-          if (norm === 'preKeys') logger.debug({ sessionName: name, id }, 'Loaded preKey');
-          if (norm === 'sessions') logger.debug({ sessionName: name, id }, 'Loaded session');
         }
       }
       if (Object.keys(result).length === 0 && (norm === 'preKeys' || norm === 'sessions')) {

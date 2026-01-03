@@ -1,4 +1,4 @@
--- Refactor chat model for ISO 27001/9001 traceability and assignment auditing
+-- Refactor chat model for ISO 27001 traceability and assignment auditing
 
 -- Extend chats with remote_jid, assignment timestamps and agent field
 ALTER TABLE chats

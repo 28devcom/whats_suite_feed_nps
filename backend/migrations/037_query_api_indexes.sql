@@ -1,5 +1,4 @@
 -- Índices para Query API masiva (cursor-friendly)
--- ISO 9001: consultabilidad trazable y determinista
 -- ISO 27001: acceso rápido con menor exposición (menos datos en tránsito)
 
 CREATE INDEX IF NOT EXISTS idx_chats_status_queue_updated_at

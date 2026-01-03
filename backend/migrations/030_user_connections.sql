@@ -1,4 +1,4 @@
--- User connections for real-time assignment visibility (ISO 27001 / 9001)
+-- User connections for real-time assignment visibility (ISO 27001)
 CREATE TABLE IF NOT EXISTS user_connections (
   id BIGSERIAL PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -13,4 +13,3 @@ CREATE TABLE IF NOT EXISTS user_connections (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_user_connections_socket ON user_connections(socket_id);
 CREATE INDEX IF NOT EXISTS idx_user_connections_user ON user_connections(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_connections_connected ON user_connections(connected);
-

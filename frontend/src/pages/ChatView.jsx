@@ -315,17 +315,13 @@ const ChatView = () => {
   }, [getMessageKey, hasRenderableContent]);
 
   const handleChatAccessLost = useCallback(
-    (message = 'Este chat ya no está asignado o autorizado', meta = {}) => {
+    (message = 'Este chat ya no está asignado o autorizado') => {
       const currentChatId = activeChatIdRef.current;
       if (!currentChatId) return;
-      const flags = [];
-      if (meta?.source) flags.push(`origen=${meta.source}`);
-      if (meta?.reason) flags.push(`motivo=${meta.reason}`);
-      const flaggedMessage = flags.length ? `${message} [${flags.join(' ')}]` : message;
       setActiveChatId(null);
       delete messageCursorRef.current[currentChatId];
       delete hasMoreRef.current[currentChatId];
-      setSnackbar({ severity: 'warning', message: flaggedMessage });
+      setSnackbar({ severity: 'warning', message });
       // Refrescar la lista para que refleje el estado real (asignado o no) sin expulsar al usuario.
       loadChats().catch(() => {});
     },
@@ -334,8 +330,7 @@ const ChatView = () => {
 
   const handleError = (err, meta = {}) => {
     if (err instanceof ApiError && err.status === 403) {
-      const reason = err.details?.reason || err.details?.action || err.details?.flag || null;
-      handleChatAccessLost('Chat ya no disponible para tu usuario', { ...meta, reason: meta.reason || reason });
+      handleChatAccessLost('Chat ya no disponible para tu usuario');
       return;
     }
     let msg = err instanceof ApiError ? err.message : err?.message || 'Error';

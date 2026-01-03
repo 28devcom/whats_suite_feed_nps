@@ -346,13 +346,14 @@ export const WhatsappSessionsProvider = ({ children }) => {
       dispatch({ type: 'SET_SESSION', id: sessionId, patch: { loading: true, error: null } });
       try {
         const qrResp = await getSessionQrApi(apiClientInstance, sessionId);
+        const hasQr = Boolean(qrResp.qr || qrResp.qrBase64);
         dispatch({
           type: 'SET_SESSION',
           id: sessionId,
           patch: {
             qr: qrResp.qr || null,
             qrBase64: qrResp.qrBase64 || null,
-            status: qrResp.status || 'pending',
+            status: hasQr ? 'pending' : (qrResp.status || 'pending'),
             hasStoredKeys: Boolean(qrResp.hasStoredKeys),
             loading: false
           }

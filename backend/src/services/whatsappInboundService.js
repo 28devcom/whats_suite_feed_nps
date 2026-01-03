@@ -89,7 +89,6 @@ export const handleIncomingWhatsAppMessage = async ({
   // Mensajes enviados por nosotros mismos (broadcast/masivos) o históricos outbound: registrar en chat cerrado sin notificaciones.
   if (fromMe) {
     if (isProtocolOnly) {
-      logger.debug({ sessionName, remoteNumber, messageId, tag: LOG_TAG }, 'Skipping protocol-only outbound message');
       return null;
     }
     let chat = await findOpenChatBySession({ tenantId, sessionName, remoteNumber });
@@ -244,7 +243,6 @@ export const handleIncomingWhatsAppMessage = async ({
   }
 
   if (isProtocolOnly) {
-    logger.debug({ sessionName, remoteNumber, messageId, tag: LOG_TAG }, 'Skipping protocol-only inbound message');
     return chat;
   }
 
@@ -367,7 +365,6 @@ export const handleWhatsAppMessageUpdate = async ({
   tenantId = null
 }) => {
   if (!sessionName || !remoteNumber || !messageId) {
-    logger.debug({ sessionName, remoteNumber, messageId, tag: LOG_TAG }, 'Skipping message update without identifiers');
     return null;
   }
   const updated = await updateMessageStatus({

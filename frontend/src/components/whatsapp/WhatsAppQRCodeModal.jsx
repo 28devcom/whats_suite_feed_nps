@@ -16,7 +16,7 @@ import QRCode from 'qrcode';
 const WhatsAppQRCodeModal = ({
   open,
   sessionId,
-  status,            // 'pending' | 'connected' | 'error'
+  status,            // 'pending' | 'connecting' | 'connected' | 'error'
   qr,
   qrBase64,
   hasStoredKeys = false,
@@ -37,11 +37,13 @@ const WhatsAppQRCodeModal = ({
   }, [open, status, autoCloseOnConnect, onClose]);
 
   /* ===================== GENERATE QR ===================== */
+  const effectiveStatus = status === 'connecting' ? 'pending' : status;
+
   useEffect(() => {
     let cancelled = false;
 
     const generate = async () => {
-      if (status !== 'pending') {
+      if (effectiveStatus !== 'pending') {
         setDataUrl(null);
         return;
       }
@@ -74,12 +76,12 @@ const WhatsAppQRCodeModal = ({
     return () => {
       cancelled = true;
     };
-  }, [status, qr, qrBase64]);
+  }, [effectiveStatus, qr, qrBase64]);
 
   /* ===================== DERIVED ===================== */
-  const showLoading = loading || (status === 'pending' && !dataUrl && !renderError && !error);
-  const showEmpty = status !== 'pending' || (!qr && !qrBase64);
-  const canRenew = status === 'pending' && hasStoredKeys;
+  const showLoading = loading || (effectiveStatus === 'pending' && !dataUrl && !renderError && !error);
+  const showEmpty = effectiveStatus !== 'pending' || (!qr && !qrBase64);
+  const canRenew = effectiveStatus === 'pending' && hasStoredKeys;
 
   /* ===================== BODY ===================== */
   const body = useMemo(() => {

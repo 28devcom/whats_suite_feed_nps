@@ -1,4 +1,4 @@
--- Sync history flag per WhatsApp session with audit hardening and tenant indexes (ISO 27001/9001).
+-- Sync history flag per WhatsApp session with audit hardening and tenant indexes (ISO 27001).
 
 -- WhatsApp session settings
 ALTER TABLE whatsapp_sessions

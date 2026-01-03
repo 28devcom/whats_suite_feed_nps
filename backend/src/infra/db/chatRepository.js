@@ -744,7 +744,7 @@ export const listChatsByVisibilityCursor = async ({ user, status, limit = 50, cu
   const { rows } = await pool.query(sql, params);
   const items = rows.map(mapChat);
   const nextCursor = rows.length === safeLimit ? encodeCursor(rows[rows.length - 1]) : null;
-  // ISO 9001: cursores deterministas para trazabilidad y repetibilidad de consultas
+  // Cursores deterministas para trazabilidad y repetibilidad de consultas
   return { items, nextCursor };
 };
 

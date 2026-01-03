@@ -26,7 +26,7 @@ export class UserEntity {
 export const UserEntityDefinition = {
   table: 'users',
   identity: 'user',
-  description: 'Enterprise user model, versioned under /api/v1 (ISO 27001/9001 aligned).',
+  description: 'Enterprise user model, versioned under /api/v1 (ISO 27001 aligned).',
   fields: {
     id: { type: 'uuid', required: true, pk: true },
     name: { type: 'string', required: true, comment: 'Full name / display name' },
@@ -47,7 +47,6 @@ export const UserEntityDefinition = {
       'unique email',
       'status gate (ACTIVE/INACTIVE)',
       'no credentials or secrets stored in this entity'
-    ],
-    iso9001: ['state machine documented', 'auditable changes', 'versioned API surface (/api/v1/users)']
+    ]
   }
 };

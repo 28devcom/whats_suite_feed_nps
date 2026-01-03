@@ -14,7 +14,6 @@ const withAdvisoryLock = async (key, fn) => {
   try {
     const { rows } = await client.query('SELECT pg_try_advisory_lock(hashtext($1)) AS locked', [key]);
     if (!rows[0]?.locked) {
-      logger.debug({ tag: LOG_TAG }, 'Auto-assign skipped; lock not acquired');
       return { assigned: 0, reason: 'locked' };
     }
     const result = await fn(client);
@@ -33,7 +32,7 @@ const withAdvisoryLock = async (key, fn) => {
 };
 
 /**
- * Algoritmo (ISO 9001 trazable):
+ * Algoritmo trazable:
  * 1) Respeta feature flag autoAssignEnabled (settings).
  * 2) Solo agentes conectados (no admin/super).
  * 3) Balanceo por carga: toma cargas actuales y ordena de menor a mayor.
@@ -44,7 +43,6 @@ const withAdvisoryLock = async (key, fn) => {
 export const runAutoAssignment = async () => {
   const settings = await getSystemSettings();
   if (!settings.autoAssignEnabled) {
-    logger.debug({ tag: LOG_TAG }, 'Auto-assign disabled; skipping');
     return { assigned: 0, reason: 'disabled' };
   }
 
@@ -90,10 +88,6 @@ export const runAutoAssignment = async () => {
     if (chat.queueId) {
       const allowedQueue = await isUserInQueue(agent.userId, chat.queueId);
       if (!allowedQueue) {
-        logger.debug(
-          { tag: LOG_TAG, chatId: chat.id, agentId: agent.userId, queueId: chat.queueId },
-          'Skipping auto-assign: agent not in queue'
-        );
         // Reinsert chat to allow other eligible agents to be considered
         queue.push(chat);
         continue;

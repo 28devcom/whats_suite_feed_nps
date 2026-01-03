@@ -1,4 +1,4 @@
--- Registro de errores clasificados para ISO 9001 (operativo/seguridad/integración).
+-- Registro de errores clasificados (operativo/seguridad/integración).
 CREATE TABLE IF NOT EXISTS whatsapp_error_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_name TEXT NOT NULL,

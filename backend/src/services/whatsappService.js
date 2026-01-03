@@ -299,11 +299,12 @@ export const createSession = async (sessionName, { userId = null, ip = null, ten
 export const getQrForSession = async (sessionName, { tenantId = null } = {}) => {
   const record = await ensureSessionRecord(sessionName, { tenantId });
   const { hasStoredKeys } = await getStoredKeysInfo(sessionName, record?.tenantId || tenantId);
+  const hasQr = Boolean(record.lastQr?.qr || record.lastQr?.qrBase64);
   return {
     session: normalizeSessionName(sessionName),
     qr: record.lastQr?.qr || null,
     qrBase64: record.lastQr?.qrBase64 || null,
-    status: record.lastStatus || 'unknown',
+    status: hasQr ? 'pending' : record.lastStatus || 'unknown',
     hasStoredKeys
   };
 };
@@ -745,7 +746,6 @@ export const sendWhatsAppMessage = async ({ sessionName, remoteNumber, content }
     { tag: 'WA_SEND_NORMALIZE', sessionName, remoteNumber, rawContent: content },
     'Normalizing outbound WhatsApp message'
   );
-  console.log('[WA_SEND][RAW_CONTENT]', content);
   if (typeof content === 'string') {
     const trimmed = content.trim();
     if (!trimmed) throw new AppError('Contenido de mensaje inválido o vacío para WhatsApp', 400);

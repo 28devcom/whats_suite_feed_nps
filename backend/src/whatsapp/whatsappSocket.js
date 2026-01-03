@@ -468,7 +468,6 @@ export const createWhatsAppSocket = async (
 
     try {
       if (!Array.isArray(messages) || messages.length === 0) {
-        console.log('❌ EARLY RETURN', 'no_messages_array');
         return;
       }
 
@@ -637,7 +636,6 @@ export const createWhatsAppSocket = async (
               avatarCache.set(avatarCacheKey, { url: contactAvatar, ts: now });
             } catch (err) {
               avatarCache.set(avatarCacheKey, { url: null, ts: now });
-              logger.debug({ err: err?.message, sessionName, remoteJid: normalizedJid, tag: LOG_TAG }, 'Unable to fetch profile picture');
             }
           }
         }
