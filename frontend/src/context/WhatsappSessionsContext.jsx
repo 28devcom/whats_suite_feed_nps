@@ -413,8 +413,9 @@ export const WhatsappSessionsProvider = ({ children }) => {
       dispatch({
         type: 'SET_SESSION',
         id: cleanId,
-        patch: { loading: true, error: null, qr: null, qrBase64: null }
+        patch: { loading: true, error: null, qr: null, qrBase64: null, status: 'pending' }
       });
+      dispatch({ type: 'SET_ACTIVE_QR', id: cleanId });
       try {
         await renewQrSessionApi(apiClientInstance, cleanId);
         await syncSession(cleanId);

@@ -19,11 +19,9 @@ const WhatsAppQRCodeModal = ({
   status,            // 'pending' | 'connecting' | 'connected' | 'error'
   qr,
   qrBase64,
-  hasStoredKeys = false,
   loading = false,
   error,
   onClose,
-  onRenewQr,
   autoCloseOnConnect = true
 }) => {
   const [dataUrl, setDataUrl] = useState(null);
@@ -81,7 +79,6 @@ const WhatsAppQRCodeModal = ({
   /* ===================== DERIVED ===================== */
   const showLoading = loading || (effectiveStatus === 'pending' && !dataUrl && !renderError && !error);
   const showEmpty = effectiveStatus !== 'pending' || (!qr && !qrBase64);
-  const canRenew = effectiveStatus === 'pending' && hasStoredKeys;
 
   /* ===================== BODY ===================== */
   const body = useMemo(() => {
@@ -177,15 +174,6 @@ const WhatsAppQRCodeModal = ({
       </DialogContent>
 
       <DialogActions>
-        {canRenew && (
-          <Button
-            onClick={() => onRenewQr?.(sessionId)}
-            variant="outlined"
-            disabled={loading}
-          >
-            Nuevo QR
-          </Button>
-        )}
         <Button onClick={onClose} variant="contained">
           Cerrar
         </Button>

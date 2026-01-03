@@ -81,6 +81,7 @@ const WhatsappConnectionsContent = () => {
         onShowQr={showQr}
         onRequestPairing={requestPairing}
         onReconnect={reconnect}
+        onRenewQr={renewQr}
         onDisconnect={disconnect}
         onDelete={deleteSession}
         onRefresh={syncSession}
@@ -94,11 +95,9 @@ const WhatsappConnectionsContent = () => {
         status={activeQrSession?.status}
         qr={activeQrSession?.qr}
         qrBase64={activeQrSession?.qrBase64}
-        hasStoredKeys={activeQrSession?.hasStoredKeys}
         loading={activeQrSession?.loading}
         error={activeQrSession?.error ? new Error(activeQrSession.error) : null}
         onClose={clearQr}
-        onRenewQr={renewQr}
       />
 
       <WhatsAppPairingCodeModal

@@ -15,7 +15,8 @@ import {
 import Chip from '@mui/material/Chip';
 import WhatsAppStatusBadge from './WhatsAppStatusBadge.jsx';
 
-const isConnected = (s) => s.status === 'connected';
+const normalizeStatus = (status) => (typeof status === 'string' ? status.toLowerCase().trim() : '');
+const isConnected = (s) => normalizeStatus(s.status) === 'connected';
 const hasEverConnected = (s) => Boolean(s.hasConnected || s.lastConnectedAt);
 
 const WhatsAppSessionCard = ({
@@ -23,6 +24,7 @@ const WhatsAppSessionCard = ({
   onShowQr,
   onRequestPairing,
   onReconnect,
+  onRenewQr,
   onDisconnect,
   onDelete,
   onRefresh,
@@ -33,8 +35,11 @@ const WhatsAppSessionCard = ({
   const sessionId = session.session || session.id;
   const connected = isConnected(session);
   const everConnected = hasEverConnected(session);
+  const normalizedStatus = normalizeStatus(session.status);
+  const waitingQr = normalizedStatus === 'pending' || normalizedStatus === 'connecting';
 
-  const canShowQr = !everConnected && !connected;
+  const canShowQr = !connected && (waitingQr || !everConnected);
+  const canRenewQr = normalizedStatus === 'pending' && session.hasStoredKeys;
   const canPair = !everConnected && !connected;
   const canReconnect = everConnected && !connected;
   const canDisconnect = connected;
@@ -148,6 +153,16 @@ const WhatsAppSessionCard = ({
             </Button>
           )}
 
+          {canRenewQr && (
+            <Button
+              variant="outlined"
+              onClick={() => onRenewQr?.(sessionId)}
+              disabled={disabled}
+            >
+              Nuevo QR
+            </Button>
+          )}
+
           {canReconnect && (
             <Button
               variant="outlined"
@@ -155,7 +170,7 @@ const WhatsAppSessionCard = ({
               onClick={() => onReconnect(sessionId)}
               disabled={disabled}
             >
-              {session.status === 'connecting'
+              {normalizedStatus === 'connecting'
                 ? 'Conectando…'
                 : 'Reconectar'}
             </Button>
