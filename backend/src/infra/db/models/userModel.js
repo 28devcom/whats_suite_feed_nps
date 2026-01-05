@@ -153,6 +153,19 @@ export const updateUser = async (id, { name, email, username, role, status, dele
   return mapRowToUserEntity(rows[0]);
 };
 
+export const deleteUserHard = async (id, client = null) => {
+  const exec = client || pool;
+  const { rows } = await exec.query(
+    `DELETE FROM users
+     WHERE id = $1
+     RETURNING id, name, email, username, status, created_at, updated_at,
+       (SELECT name FROM roles WHERE id = role_id) AS role`,
+    [id]
+  );
+  if (!rows[0]) return null;
+  return mapRowToUserEntity(rows[0]);
+};
+
 export const listUsers = async () => {
   const { rows } = await pool.query(
     `SELECT u.id, u.name, u.email, u.username, u.status, u.created_at, u.updated_at, u.deleted_at, r.name as role

@@ -1,9 +1,16 @@
 import { verifyAndGetUser } from './authService.js';
-import { upsertUserConnection, markDisconnectedBySocket, listConnectedAgents as listConnectedAgentsDb } from '../infra/db/userConnectionRepository.js';
+import {
+  upsertUserConnection,
+  markDisconnectedBySocket,
+  listConnectedAgents as listConnectedAgentsDb,
+  markDisconnectedByUserIds
+} from '../infra/db/userConnectionRepository.js';
 import { ROLES } from '../domain/user/user.js';
 import logger from '../infra/logging/logger.js';
 import { recordAuditLog } from '../infra/db/auditRepository.js';
 import { runAutoAssignmentLocked } from './chatAutoAssignmentService.js';
+import redisClient, { ensureRedisConnection } from '../infra/cache/redisClient.js';
+import env from '../config/env.js';
 
 const logConnectionAudit = async ({ userId, action, socketId }) => {
   await recordAuditLog({
@@ -37,11 +44,33 @@ export const registerDisconnect = async ({ socketId }) => {
   const updated = await markDisconnectedBySocket(socketId);
   if (updated?.userId) {
     await logConnectionAudit({ userId: updated.userId, action: 'user_disconnected', socketId });
-    logger.info({ socketId, userId: updated.userId, role: updated.role, tag: 'WA_CONN' }, 'User disconnected');
+  logger.info({ socketId, userId: updated.userId, role: updated.role, tag: 'WA_CONN' }, 'User disconnected');
   }
   return updated;
 };
 
+const sessionKey = (userId) => `${env.redis.sessionPrefix}:${userId}`;
+
 export const listConnectedAgents = async () => {
-  return listConnectedAgentsDb();
+  const connections = await listConnectedAgentsDb();
+  if (!connections.length) return [];
+  try {
+    await ensureRedisConnection();
+    const uniqueUserIds = Array.from(new Set(connections.map((c) => c.userId).filter(Boolean)));
+    if (!uniqueUserIds.length) return [];
+    const keys = uniqueUserIds.map(sessionKey);
+    const sessionJtis = await redisClient.mGet(keys);
+    const activeUserIds = new Set();
+    sessionJtis.forEach((val, idx) => {
+      if (val) activeUserIds.add(uniqueUserIds[idx]);
+    });
+    const stale = uniqueUserIds.filter((id) => !activeUserIds.has(id));
+    if (stale.length) {
+      await markDisconnectedByUserIds(stale).catch(() => {});
+    }
+    return connections.filter((c) => activeUserIds.has(c.userId));
+  } catch (err) {
+    logger.warn({ err, tag: 'WA_CONN' }, 'Falling back to raw connected agents');
+    return connections;
+  }
 };

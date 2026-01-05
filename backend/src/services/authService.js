@@ -9,6 +9,7 @@ import { recordAuthEvent } from '../infra/db/authEventRepository.js';
 import { toSeconds } from '../shared/time.js';
 import { AppError } from '../shared/errors.js';
 import { ROLES } from '../domain/user/user.js';
+import { markDisconnectedByUserIds } from '../infra/db/userConnectionRepository.js';
 
 const sessionKey = (userId) => `${env.redis.sessionPrefix}:${userId}`;
 
@@ -78,6 +79,7 @@ export const logout = async ({ userId, jti, ip, userAgent }) => {
     await redisClient.del(key);
   }
   await recordAuthEvent({ userId, eventType: 'logout', success: true, ip, userAgent });
+  await markDisconnectedByUserIds([userId]).catch(() => {});
 };
 
 export const forceLogout = async ({ targetUserId, performedBy, ip, userAgent }) => {
@@ -85,6 +87,7 @@ export const forceLogout = async ({ targetUserId, performedBy, ip, userAgent }) 
   await redisClient.del(sessionKey(targetUserId));
   await recordAuthEvent({ userId: targetUserId, eventType: 'force_logout', success: true, ip, userAgent });
   logger.warn({ targetUserId, performedBy }, 'Session revoked remotely');
+  await markDisconnectedByUserIds([targetUserId]).catch(() => {});
 };
 
 export const verifyAndGetUser = async (token) => {

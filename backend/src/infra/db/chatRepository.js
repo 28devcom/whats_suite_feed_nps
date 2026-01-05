@@ -581,6 +581,31 @@ export const unassignChatDb = async (chatId) => {
   return chat;
 };
 
+export const bulkUnassignChatsByUser = async (userId, client = null) => {
+  if (!userId) return [];
+  await ensureChatSchema();
+  const exec = executorFor(client);
+  const { rows } = await exec.query(
+    `UPDATE chats
+     SET assigned_agent_id = NULL,
+         assigned_user_id = NULL,
+         status = CASE WHEN status = 'CLOSED' THEN status ELSE 'UNASSIGNED' END,
+         assigned_at = NULL,
+         updated_at = NOW()
+     WHERE assigned_agent_id = $1 OR assigned_user_id = $1
+     RETURNING *`,
+    [userId]
+  );
+  const chats = rows.map(mapChat);
+  if (!client) {
+    for (const chat of chats) {
+      await cacheChat(chat);
+      await invalidateAssignment(chat.id);
+    }
+  }
+  return chats;
+};
+
 export const isUserInQueue = async (userId, queueId) => {
   // Si el chat no tiene cola asociada, permitimos operar (modo abierto / transición).
   if (!queueId) return true;

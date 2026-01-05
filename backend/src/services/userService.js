@@ -1,11 +1,23 @@
 import { AppError } from '../shared/errors.js';
 import bcrypt from 'bcrypt';
-import { insertUser, listUsers as listUsersDb, findUserById as findUserByIdDb, updateUser as updateUserDb } from '../infra/db/models/userModel.js';
+import {
+  insertUser,
+  listUsers as listUsersDb,
+  findUserById as findUserByIdDb,
+  updateUser as updateUserDb,
+  deleteUserHard as deleteUserDb
+} from '../infra/db/models/userModel.js';
 import { USER_ROLES, USER_STATUS } from '../domain/user/user.entity.js';
 import { recordAuditLog } from '../infra/db/auditRepository.js';
 import pool from '../infra/db/postgres.js';
 import { forceLogout } from './authService.js';
 import { findById as findAuthUser } from '../infra/db/userRepository.js';
+import { bulkUnassignChatsByUser } from '../infra/db/chatRepository.js';
+import { recordChatAssignmentAudit } from '../infra/db/chatAssignmentAuditRepository.js';
+import { recordChatAudit } from '../infra/db/chatAuditRepository.js';
+import { cacheAssignment, invalidateChat } from '../infra/cache/chatCache.js';
+import { emitToRoles } from '../infra/realtime/socketHub.js';
+import { markDisconnectedByUserIds } from '../infra/db/userConnectionRepository.js';
 
 const sanitizeUser = (user) => {
   if (!user) return null;
@@ -134,18 +146,102 @@ export const deleteUser = async (id, { actorId = null, ip = null, confirm = fals
       throw new AppError('No puedes eliminar al último administrador', 409);
     }
   }
-  // Best-effort: revoca sesión y aplica soft delete
+
+  // Revoca sesión y marca conexiones como desconectadas antes de tocar datos.
   await forceLogout({ targetUserId: id, performedBy: actorId, ip, userAgent: null }).catch(() => {});
-  const deletedAt = new Date().toISOString();
-  const user = await updateUserDb(id, { status: USER_STATUS.INACTIVE, deletedAt });
+  await markDisconnectedByUserIds([id]).catch(() => {});
+
+  const client = await pool.connect();
+  let chatsUnassigned = [];
+  let conversationsCleared = 0;
+  try {
+    await client.query('BEGIN');
+
+    // Desasigna todos los chats del usuario: quedan en estado UNASSIGNED salvo los cerrados.
+    chatsUnassigned = await bulkUnassignChatsByUser(id, client);
+
+    // Conversaciones heredadas (omni-channel): desasigna y abre si estaba asignado.
+    const convRes = await client.query(
+      `UPDATE conversations
+       SET assigned_agent_id = NULL,
+           status = CASE WHEN status = 'closed' THEN status ELSE 'open' END,
+           updated_at = NOW()
+       WHERE assigned_agent_id = $1
+       RETURNING id`,
+      [id]
+    );
+    conversationsCleared = convRes?.rowCount || 0;
+
+    // Historial de asignaciones antiguas: permitir NULL para conservar trazabilidad sin bloquear el delete.
+    await client.query('ALTER TABLE IF EXISTS conversation_assignment_history ALTER COLUMN agent_id DROP NOT NULL');
+    await client.query('UPDATE conversation_assignment_history SET agent_id = NULL WHERE agent_id = $1', [id]);
+    await client.query('UPDATE conversation_assignment_history SET assigned_by = NULL WHERE assigned_by = $1', [id]);
+
+    // Limpiar FKs que no tienen ON DELETE SET NULL.
+    await client.query('UPDATE auth_events SET user_id = NULL WHERE user_id = $1', [id]);
+    await client.query('UPDATE audit_logs SET user_id = NULL WHERE user_id = $1', [id]);
+    await client.query('UPDATE broadcast_templates SET created_by = NULL WHERE created_by = $1', [id]);
+    await client.query('UPDATE broadcast_campaigns SET created_by = NULL WHERE created_by = $1', [id]);
+    await client.query('UPDATE message_templates SET created_by = NULL WHERE created_by = $1', [id]);
+    await client.query('UPDATE campaigns SET created_by = NULL WHERE created_by = $1', [id]);
+
+    const deleted = await deleteUserDb(id, client);
+    if (!deleted) throw new AppError('No se pudo eliminar el usuario', 500);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  // Auditoría central de la eliminación del usuario.
   await logUserEvent({
     actorId,
-    action: 'user_deleted_soft',
+    action: 'user_deleted_hard',
     targetId: id,
     ip,
-    metadata: { email: existing.email, username: existing.username, deletedAt }
+    metadata: {
+      email: existing.email,
+      username: existing.username,
+      role: existing.role,
+      chatsUnassigned: chatsUnassigned.length,
+      conversationsCleared
+    }
   });
-  return { deleted: true, soft: true };
+
+  // Trazabilidad por chat y actualización de caché/emisiones.
+  for (const chat of chatsUnassigned) {
+    await cacheAssignment(chat.id, { assignedAgentId: null, assignedAt: null }).catch(() => {});
+    await invalidateChat(chat.id).catch(() => {});
+    await recordChatAssignmentAudit({
+      chatId: chat.id,
+      previousAgentId: existing.id,
+      newAgentId: null,
+      action: 'UNASSIGN',
+      executedByUserId: actorId,
+      reason: 'user_deleted',
+      validatedQueue: chat.queueId ? true : null,
+      fromConnectionId: chat.whatsappSessionName || chat.connectionId || null,
+      toConnectionId: null
+    }).catch(() => {});
+    await recordChatAudit({
+      actorUserId: actorId,
+      action: 'chat_unassigned',
+      chatId: chat.id,
+      queueId: chat.queueId,
+      ip,
+      metadata: { reason: 'user_deleted', deletedUserId: id }
+    }).catch(() => {});
+    await emitToRoles(['ADMIN', 'SUPERVISOR'], 'chat:update', chat).catch(() => {});
+  }
+
+  return {
+    deleted: true,
+    hard: true,
+    chatsUnassigned: chatsUnassigned.length,
+    conversationsCleared
+  };
 };
 
 export const changePassword = async ({ targetUserId, currentPassword, newPassword, actor = {}, ip = null, userAgent = null }) => {

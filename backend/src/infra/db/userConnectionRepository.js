@@ -96,3 +96,17 @@ export const listConnectionsByRoles = async (roles = []) => {
   );
   return rows.map(mapConnection);
 };
+
+export const markDisconnectedByUserIds = async (userIds = []) => {
+  await ensureTable();
+  if (!Array.isArray(userIds) || userIds.length === 0) return 0;
+  const { rowCount } = await pool.query(
+    `UPDATE user_connections
+     SET connected = false,
+         last_seen = NOW(),
+         updated_at = NOW()
+     WHERE user_id = ANY($1)`,
+    [userIds]
+  );
+  return rowCount;
+};
