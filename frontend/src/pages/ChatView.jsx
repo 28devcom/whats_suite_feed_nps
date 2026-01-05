@@ -143,6 +143,7 @@ const ChatView = () => {
   const activeTabRef = useRef(activeTab);
   const activeChatIdRef = useRef(activeChatId);
   const userRef = useRef(user);
+  const chatsRef = useRef([]);
   const quickReplyCacheRef = useRef(new Map());
   const [connectionStatusMap, setConnectionStatusMap] = useState({});
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -193,6 +194,10 @@ const ChatView = () => {
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
 
   useEffect(() => {
     quickReplyCacheRef.current.clear();
@@ -330,6 +335,10 @@ const ChatView = () => {
 
   const handleError = (err, meta = {}) => {
     if (err instanceof ApiError && err.status === 403) {
+      const targetChatId = meta?.chatId || null;
+      if (targetChatId && targetChatId !== activeChatIdRef.current) {
+        return;
+      }
       handleChatAccessLost('Chat ya no disponible para tu usuario');
       return;
     }
@@ -867,7 +876,7 @@ const ChatView = () => {
         setScrollKey((k) => k + 1);
       }
     } catch (err) {
-      handleError(err, { source: 'load_messages' });
+      handleError(err, { source: 'load_messages', chatId });
     } finally {
       if (prepend) setLoadingMoreFor(chatId, false);
       else setLoadingMsgs(false);
@@ -1160,12 +1169,35 @@ const ChatView = () => {
       return typeof jid === 'string' && jid.endsWith('@g.us');
     };
 
+    const isChatVisibleCurrent = (chat) => {
+      if (!chat) return false;
+      const currentRole = userRef.current?.role;
+      const currentUserId = userRef.current?.id;
+      if (currentRole === 'ADMIN' || currentRole === 'SUPERVISOR') return true;
+      if (currentRole === 'AGENTE') {
+        return !chat.assignedUserId || chat.assignedUserId === currentUserId;
+      }
+      return false;
+    };
+
+    const matchesTabCurrent = (chat) => {
+      if (!chat) return false;
+      const tab = activeTabRef.current;
+      if (tab === 'UNASSIGNED') return chat.status === 'UNASSIGNED';
+      if (tab === 'CLOSED') return chat.status === 'CLOSED';
+      return chat.status === 'OPEN';
+    };
+
     const handleStatusUpdate = (payload = {}) => {
       const data = payload.message || payload;
       const chatId = data.chatId || payload.chatId;
       const whatsappMessageId = data.whatsappMessageId || payload.whatsappMessageId;
       const messageId = data.id || payload.messageId;
       if (!chatId || !(whatsappMessageId || messageId)) return;
+      const chatPayload = payload.chat || chatsRef.current.find((c) => c.id === chatId) || null;
+      const isActiveChat = activeChatIdRef.current === chatId;
+      const isVisible = chatPayload ? isChatVisibleCurrent(chatPayload) : isActiveChat;
+      if (!isVisible) return;
       const normalized = {
         ...data,
         deletedForRemote: data.status === 'deleted' ? true : data.deletedForRemote,
@@ -1189,7 +1221,7 @@ const ChatView = () => {
           }
           return { ...prev, [chatId]: dedupeMessages(next) };
         });
-        if (needReload) loadMessages(chatId);
+        if (needReload && isActiveChat) loadMessages(chatId);
         return;
       }
       setMessages((prev) => {
@@ -1215,28 +1247,9 @@ const ChatView = () => {
         }
         return { ...prev, [chatId]: dedupeMessages(next) };
       });
-      if (needReload) {
+      if (needReload && isActiveChat) {
         loadMessages(chatId);
       }
-    };
-
-    const isChatVisibleCurrent = (chat) => {
-      if (!chat) return false;
-      const currentRole = userRef.current?.role;
-      const currentUserId = userRef.current?.id;
-      if (currentRole === 'ADMIN' || currentRole === 'SUPERVISOR') return true;
-      if (currentRole === 'AGENTE') {
-        return !chat.assignedUserId || chat.assignedUserId === currentUserId;
-      }
-      return false;
-    };
-
-    const matchesTabCurrent = (chat) => {
-      if (!chat) return false;
-      const tab = activeTabRef.current;
-      if (tab === 'UNASSIGNED') return chat.status === 'UNASSIGNED';
-      if (tab === 'CLOSED') return chat.status === 'CLOSED';
-      return chat.status === 'OPEN';
     };
 
     const handleIncomingMessage = ({ chatId, message, chat }) => {
