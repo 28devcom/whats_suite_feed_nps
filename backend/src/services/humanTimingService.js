@@ -19,21 +19,29 @@ const pickRange = ([min, max]) => randomInt(min, max);
 const parseHmToMinutes = (hm) => {
   if (typeof hm === 'number' && Number.isFinite(hm)) return hm;
   if (hm instanceof Date) return hm.getHours() * 60 + hm.getMinutes();
-  const raw = typeof hm === 'string' ? hm : '';
-  const [h, m] = raw.split(':').map((v) => Number.parseInt(v, 10));
+  if (typeof hm !== 'string') return 0;
+  const raw = hm.includes(':') ? hm : `${hm}`;
+  const parts = raw.split(':');
+  const h = Number.parseInt(parts[0], 10);
+  const m = parts[1] ? Number.parseInt(parts[1], 10) : 0;
   return (Number.isNaN(h) ? 0 : h) * 60 + (Number.isNaN(m) ? 0 : m);
 };
 
 const normalizeWindows = (activeHours) =>
-  (activeHours || defaults.activeHours).map((w) => {
-    if (typeof w?.start === 'number' && typeof w?.end === 'number') {
-      return { start: w.start, end: w.end };
-    }
-    return {
-      start: parseHmToMinutes(w?.start ?? '08:00'),
-      end: parseHmToMinutes(w?.end ?? '22:00')
-    };
-  });
+  Array.isArray(activeHours) && activeHours.length
+    ? activeHours.map((w) => {
+        if (typeof w?.start === 'number' && typeof w?.end === 'number') {
+          return { start: w.start, end: w.end };
+        }
+        return {
+          start: parseHmToMinutes(w?.start ?? '08:00'),
+          end: parseHmToMinutes(w?.end ?? '22:00')
+        };
+      })
+    : defaults.activeHours.map((w) => ({
+        start: parseHmToMinutes(w.start),
+        end: parseHmToMinutes(w.end)
+      }));
 
 const minutesOfDay = (d) => d.getHours() * 60 + d.getMinutes();
 
