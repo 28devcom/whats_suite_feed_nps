@@ -17,15 +17,23 @@ const randomFloat = () => crypto.randomInt(0, 10_000) / 10_000;
 const pickRange = ([min, max]) => randomInt(min, max);
 
 const parseHmToMinutes = (hm) => {
-  const [h, m] = hm.split(':').map((v) => Number.parseInt(v, 10));
+  if (typeof hm === 'number' && Number.isFinite(hm)) return hm;
+  if (hm instanceof Date) return hm.getHours() * 60 + hm.getMinutes();
+  const raw = typeof hm === 'string' ? hm : '';
+  const [h, m] = raw.split(':').map((v) => Number.parseInt(v, 10));
   return (Number.isNaN(h) ? 0 : h) * 60 + (Number.isNaN(m) ? 0 : m);
 };
 
 const normalizeWindows = (activeHours) =>
-  (activeHours || defaults.activeHours).map((w) => ({
-    start: parseHmToMinutes(w.start || '08:00'),
-    end: parseHmToMinutes(w.end || '22:00')
-  }));
+  (activeHours || defaults.activeHours).map((w) => {
+    if (typeof w?.start === 'number' && typeof w?.end === 'number') {
+      return { start: w.start, end: w.end };
+    }
+    return {
+      start: parseHmToMinutes(w?.start ?? '08:00'),
+      end: parseHmToMinutes(w?.end ?? '22:00')
+    };
+  });
 
 const minutesOfDay = (d) => d.getHours() * 60 + d.getMinutes();
 
