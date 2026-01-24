@@ -1,6 +1,7 @@
 import { createWarmupEngine } from '../../services/warmupEngine.js';
 import { createWarmupScheduler } from '../../services/warmupScheduler.js';
 import { listWhatsappSessions } from '../../infra/db/whatsappSessionRepository.js';
+import { listSessions } from '../../services/whatsappService.js';
 import { snapshotWarmupMetrics } from '../../services/warmupTelemetry.js';
 import { isAllowed, getSelection, setSelection } from '../../services/warmupSelection.js';
 
@@ -18,16 +19,18 @@ const buildEngine = () => {
 };
 
 const fetchLines = async () => {
-  const sessions = await listWhatsappSessions();
+  // Usa la misma lógica que la página de conexiones: live status + persistido.
+  const sessions = await listSessions();
   const lines = [];
   for (const s of sessions) {
-    if (!s.status || s.status.toLowerCase() === 'deleted') continue;
-    const allowed = await isAllowed(s.sessionName);
+    const status = (s.status || '').toLowerCase();
+    if (!status || status === 'deleted') continue;
+    const allowed = await isAllowed(s.session || s.sessionName || s.id);
     if (!allowed) continue;
     lines.push({
-      id: s.sessionName,
-      sessionName: s.sessionName,
-      phone: s.sessionName,
+      id: s.session || s.sessionName,
+      sessionName: s.session || s.sessionName,
+      phone: s.session || s.sessionName,
       status: s.status || 'active',
       warmupProfile: 'estable',
       tenantId: s.tenantId || null
