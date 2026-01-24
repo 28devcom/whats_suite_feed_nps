@@ -21,6 +21,7 @@ router.post('/pause', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), pause);
 router.post('/resume', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), resume);
 router.post('/simulate', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), simulate);
 router.post('/run', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), runCycle);
+router.get('/run', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), runCycle); // atajo GET para facilitar pruebas
 router.get('/lines', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), lines);
 router.get('/selection', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), selection);
 router.post('/selection', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), setSelection);
