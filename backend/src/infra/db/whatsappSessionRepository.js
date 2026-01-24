@@ -190,3 +190,19 @@ export const updateSessionSyncTracking = async ({
   if (rows[0]) return mapSessionRow(rows[0]);
   return findSessionByName({ sessionName, tenantId: resolvedTenant });
 };
+
+export const listWhatsappSessions = async () => {
+  const { rows } = await pool.query(
+    `SELECT session_name, tenant_id, status, last_connected_at, sync_history, updated_at
+     FROM whatsapp_sessions
+     ORDER BY session_name ASC`
+  );
+  return rows.map((r) => ({
+    sessionName: r.session_name,
+    tenantId: r.tenant_id,
+    status: r.status,
+    lastConnectedAt: r.last_connected_at,
+    syncHistory: r.sync_history,
+    updatedAt: r.updated_at
+  }));
+};

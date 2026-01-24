@@ -6,6 +6,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import SettingsIcon from '@mui/icons-material/Settings';
 import QueueIcon from '@mui/icons-material/Queue';
 import QuickreplyIcon from '@mui/icons-material/Quickreply';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 
 // Estructura agrupada para el sidebar; cada sección define su orden interno.
 export const navigationSections = [
@@ -15,7 +16,8 @@ export const navigationSections = [
       { label: 'Dashboard', path: '/status', icon: DashboardIcon, roles: ['ADMIN', 'SUPERVISOR'], order: 1 },
       { label: 'Conversaciones', path: '/chat', icon: ChatIcon, roles: ['ADMIN', 'SUPERVISOR', 'AGENTE'], order: 2 },
       { label: 'Broadcast', path: '/broadcast', icon: BoltIcon, roles: ['ADMIN', 'SUPERVISOR'], order: 3 },
-      { label: 'Respuestas rápidas', path: '/quick-replies', icon: QuickreplyIcon, roles: ['ADMIN', 'SUPERVISOR'], order: 4 }
+      { label: 'Respuestas rápidas', path: '/quick-replies', icon: QuickreplyIcon, roles: ['ADMIN', 'SUPERVISOR'], order: 4 },
+      { label: 'Warmup', path: '/warmup', icon: LocalFireDepartmentIcon, roles: ['ADMIN', 'SUPERVISOR'], order: 5 }
     ]
   },
   {

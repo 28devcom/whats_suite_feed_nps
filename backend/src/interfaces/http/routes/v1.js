@@ -26,6 +26,7 @@ import contactRoutes from './contactRoutes.js';
 import { apiVersionHeader } from '../middlewares/apiVersion.js';
 import { authenticate } from '../middlewares/authMiddleware.js';
 import { audit } from '../middlewares/auditMiddleware.js';
+import warmupRoutes from './warmupRoutes.js';
 
 const router = Router();
 
@@ -62,5 +63,6 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/broadcast', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), broadcastRoutes);
 router.use('/quick-replies', quickReplyRoutes);
 router.use('/contacts', contactRoutes);
+router.use('/warmup', warmupRoutes);
 
 export default router;
