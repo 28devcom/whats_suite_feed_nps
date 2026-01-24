@@ -39,7 +39,10 @@ export class WarmupScheduler extends EventEmitter {
     frequencyMs = 60_000,
     concurrency = 1,
     dailyLimitPerLine = 30,
-    allowedStatuses = ['active'],
+    allowedStatuses = (process.env.WARMUP_ALLOWED_STATUSES || 'active,connected,reconnecting,pending')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
     loggerInstance = logger
   } = {}) {
     super();
