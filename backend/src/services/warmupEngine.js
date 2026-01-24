@@ -39,6 +39,10 @@ export class WarmupEngine extends EventEmitter {
     maxPerSessionPerRun = 40,
     failShutdownThreshold = 5,
     autoShutdown = true,
+    allowedConnectionStatuses = (process.env.WARMUP_ALLOWED_STATUSES || 'active,connected,reconnecting,pending')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
     log = logger
   } = {}) {
     super();
@@ -54,13 +58,15 @@ export class WarmupEngine extends EventEmitter {
     this.autoShutdown = autoShutdown;
     this.disabled = false;
     this.consecutiveFailures = 0;
+    this.allowedConnectionStatuses = allowedConnectionStatuses;
     this.log = log;
   }
 
   async ensureSessionConnected(sessionName, tenantId = null) {
     try {
       const status = await getStatusForSession(sessionName, { tenantId });
-      const connected = status?.status === 'connected';
+      const normalized = (status?.status || '').toLowerCase();
+      const connected = this.allowedConnectionStatuses.includes(normalized);
       if (!connected) {
         const payload = { sessionName, status };
         this.emit('session_skipped', payload);
