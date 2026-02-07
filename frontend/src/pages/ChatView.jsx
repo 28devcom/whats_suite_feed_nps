@@ -157,6 +157,25 @@ const ChatView = () => {
   const [availableConnections, setAvailableConnections] = useState([]);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const contactLoadingRef = useRef(new Set());
+  const pickBestConnection = useCallback((conns = [], targetQueueId = null) => {
+    if (!Array.isArray(conns) || !conns.length) return '';
+    const weight = { connected: 3, reconnecting: 2, pending: 1, unknown: 0 };
+    const candidates = targetQueueId
+      ? conns.filter((c) => (c.queues || []).some((q) => q.id === targetQueueId))
+      : conns;
+    if (!candidates.length) return '';
+    const sorted = [...candidates].sort((a, b) => {
+      const wa = weight[a.status] ?? 0;
+      const wb = weight[b.status] ?? 0;
+      if (wb !== wa) return wb - wa;
+      // Prefer conexiones con menos colas (más específicas al asesor)
+      const qa = (a.queues || []).length;
+      const qb = (b.queues || []).length;
+      if (qa !== qb) return qa - qb;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    return sorted[0]?.name || '';
+  }, []);
   const selectedCountry = useMemo(
     () => COUNTRY_OPTIONS.find((c) => c.code === newChatForm.countryCode) || COUNTRY_OPTIONS[0],
     [newChatForm.countryCode]
@@ -521,6 +540,28 @@ const ChatView = () => {
       loadConnectionsCatalog();
     }
   }, [newChatOpen, loadConnectionsCatalog]);
+
+  // Autoseleccionar conexión al abrir modal (no editable), basada en conexiones habilitadas para el asesor y colas asociadas.
+  useEffect(() => {
+    if (!newChatOpen) return;
+    if (newChatForm.sessionName) return;
+    const best = pickBestConnection(availableConnections, newChatForm.queueId || null);
+    if (best) {
+      setNewChatForm((prev) => ({ ...prev, sessionName: best, queueId: '' }));
+    }
+  }, [newChatOpen, availableConnections, newChatForm.sessionName, newChatForm.queueId, pickBestConnection]);
+
+  // Si el usuario elige una cola incompatible con la conexión actual, mover la conexión a la mejor que soporte esa cola.
+  useEffect(() => {
+    if (!newChatOpen || !newChatForm.queueId) return;
+    const current = availableConnections.find((c) => c.name === newChatForm.sessionName);
+    const currentSupportsQueue = current && (current.queues || []).some((q) => q.id === newChatForm.queueId);
+    if (currentSupportsQueue) return;
+    const best = pickBestConnection(availableConnections, newChatForm.queueId);
+    if (best && best !== newChatForm.sessionName) {
+      setNewChatForm((prev) => ({ ...prev, sessionName: best }));
+    }
+  }, [newChatOpen, newChatForm.queueId, newChatForm.sessionName, availableConnections, pickBestConnection]);
 
   useEffect(() => {
     refreshWhatsappStatuses();
@@ -1665,7 +1706,7 @@ const ChatView = () => {
               renderInput={(params) => <TextField {...params} label="País" placeholder="Selecciona el país" />}
             />
 
-            <FormControl fullWidth disabled={connectionsLoading} size="small">
+            <FormControl fullWidth disabled size="small">
               <InputLabel id="new-chat-connection-label" shrink>
                 Conexión WhatsApp
               </InputLabel>
@@ -1673,13 +1714,7 @@ const ChatView = () => {
                 labelId="new-chat-connection-label"
                 label="Conexión WhatsApp"
                 value={newChatForm.sessionName}
-                onChange={(e) =>
-                  setNewChatForm((prev) => ({
-                    ...prev,
-                    sessionName: e.target.value,
-                    queueId: ''
-                  }))
-                }
+                onChange={() => {}}
                 displayEmpty
                 renderValue={(val) =>
                   val ? (
