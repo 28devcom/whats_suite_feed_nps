@@ -30,6 +30,7 @@ import {
   listQueuesForSession,
   connectionExists
 } from '../infra/db/queueConnectionRepository.js';
+import { selectAutoConnectionForChat } from './connectionSelectionService.js';
 
 const logChatAudit = async ({ actorId, action, chatId, ip, metadata }) => {
   await recordAuditLog({
@@ -294,14 +295,28 @@ export const reopenChat = async (chatId, user, { ip = null } = {}) => {
 };
 
 export const createOrReopenChat = async ({ sessionName, contact, queueId }, user, { ip = null, userAgent = null } = {}) => {
-  const trimmedSession = (sessionName || '').trim();
-  if (!trimmedSession) throw new AppError('connection_id requerido', 400);
+  let trimmedSession = (sessionName || '').trim();
+  let selectionMeta = { sessionName: trimmedSession || null, score: null, reason: trimmedSession ? 'client_provided' : 'auto_select' };
   const rawContact = (contact || '').toString().trim();
   if (!rawContact) throw new AppError('Contacto requerido', 400);
   const normalizedNumber = normalizeWhatsAppNumber(rawContact);
   if (!normalizedNumber) throw new AppError('Número de contacto inválido', 400);
   const remoteJid = `${normalizedNumber}@s.whatsapp.net`;
   const tenantId = await resolveTenantId(user?.id || null);
+
+  // Selección automática de conexión solo cuando el cliente no especifica sessionName.
+  // Se ejecuta antes de validaciones de permisos/colas y antes de persistir el chat.
+  if (!trimmedSession) {
+    // Reservar la conexión ganadora y excluirla de otras selecciones concurrentes con el mismo usuario/tenant.
+    await pool.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`auto_conn_${tenantId || 'default'}_${user.id}`]);
+
+    const selection = await selectAutoConnectionForChat({ user, tenantId, queueId }).catch((err) => {
+      // Falla controlada: sin teléfono seguro no se crea el chat.
+      throw new AppError(err.message || 'No se pudo seleccionar una conexión elegible', err.statusCode || 503);
+    });
+    trimmedSession = selection.sessionName;
+    selectionMeta = { sessionName: selection.sessionName, score: selection.score, reason: 'auto_select' };
+  }
 
   const isPrivileged = user?.role === 'ADMIN' || user?.role === 'SUPERVISOR';
 
@@ -310,7 +325,7 @@ export const createOrReopenChat = async ({ sessionName, contact, queueId }, user
     : await userHasConnection(user?.id || null, trimmedSession);
   if (!allowedConnection) {
     throw accessError(
-      'Conexión no asignada a tus colas',
+      'No hay una conexión segura disponible para crear el chat',
       await buildChatAccessTraceWithAudit({
         action: 'chat_create',
         reason: 'connection_not_allowed',
@@ -454,6 +469,20 @@ export const createOrReopenChat = async ({ sessionName, contact, queueId }, user
       queueId: chat?.queueId || targetQueueId || null,
       ip,
       metadata: { sessionName: trimmedSession, contact: normalizedNumber, queueId: targetQueueId }
+    }).catch(() => {});
+    // Trazabilidad de selección de conexión (chat_id, connection, score, motivo, timestamp).
+    await recordChatAudit({
+      actorUserId: user?.id || null,
+      action: 'chat_connection_selected',
+      chatId: chat?.id || null,
+      queueId: chat?.queueId || targetQueueId || null,
+      ip,
+      metadata: {
+        connectionId: trimmedSession,
+        score: selectionMeta?.score ?? null,
+        reason: selectionMeta?.reason || 'auto_select',
+        at: new Date().toISOString()
+      }
     }).catch(() => {});
 
     await cacheAssignment(chat.id, { assignedAgentId: chat.assignedAgentId, assignedAt: chat.assignedAt });
