@@ -31,6 +31,7 @@ import {
   connectionExists
 } from '../infra/db/queueConnectionRepository.js';
 import { selectAutoConnectionForChat } from './connectionSelectionService.js';
+import { listSessions as listWhatsappSessions, getStatusForSession } from './whatsappService.js';
 
 const logChatAudit = async ({ actorId, action, chatId, ip, metadata }) => {
   await recordAuditLog({
@@ -516,10 +517,21 @@ export const listConnectionsForUserService = async (user) => {
     // si falla, se deja el status que viene de DB
   }
 
-  const enriched = connections.map((c) => {
-    const liveStatus = liveStatusMap.get(c.sessionName) || c.status || null;
-    return { ...c, status: liveStatus };
-  });
+  // Para asegurar que los estados sean los más frescos, intenta obtener /status por sesión si sigue pendiente.
+  const enriched = await Promise.all(
+    connections.map(async (c) => {
+      let status = liveStatusMap.get(c.sessionName) || c.status || null;
+      if (!status || status === 'pending' || status === 'connecting') {
+        try {
+          const st = await getStatusForSession(c.sessionName);
+          status = (st?.status || status || 'unknown').toLowerCase();
+        } catch (_err) {
+          // ignorar y conservar status actual
+        }
+      }
+      return { ...c, status };
+    })
+  );
 
   return { connections: enriched };
 };
