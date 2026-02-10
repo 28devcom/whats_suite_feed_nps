@@ -501,5 +501,25 @@ export const createOrReopenChat = async ({ sessionName, contact, queueId }, user
 export const listConnectionsForUserService = async (user) => {
   if (!user?.id) return { connections: [] };
   const connections = await listConnectionsForUser(user.id, { includeAll: false });
-  return { connections };
+
+  // Enriquecer con estado vivo igual que la página de Conexiones
+  let liveStatusMap = new Map();
+  try {
+    const live = await listWhatsappSessions();
+    liveStatusMap = new Map(
+      (live || []).map((s) => [
+        s.session || s.sessionName || s.id,
+        (s.status || '').toLowerCase() || 'unknown'
+      ])
+    );
+  } catch (_err) {
+    // si falla, se deja el status que viene de DB
+  }
+
+  const enriched = connections.map((c) => {
+    const liveStatus = liveStatusMap.get(c.sessionName) || c.status || null;
+    return { ...c, status: liveStatus };
+  });
+
+  return { connections: enriched };
 };
