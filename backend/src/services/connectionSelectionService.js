@@ -6,7 +6,10 @@ import {
   listQueuesForSessionAndUser
 } from '../infra/db/queueConnectionRepository.js';
 import { listWhatsappSessions } from '../infra/db/whatsappSessionRepository.js';
-import { listSessions as listLiveWhatsappSessions } from './whatsappService.js';
+import {
+  listSessions as listLiveWhatsappSessions,
+  getStatusForSession
+} from './whatsappService.js';
 
 // Allowed connection statuses for selección (solo conexiones realmente operativas)
 const ELIGIBLE_STATUSES = ['connected'];
@@ -26,33 +29,57 @@ const isEffectivelyConnected = (status, lastConnectedAt) => {
 const TRAFFIC_WINDOW_MIN = 15;
 const ERROR_WINDOW_MIN = 30;
 
-// Fetch live-ish session status info; prefer same pipeline que usa la página de Conexiones (whatsappService.listSessions),
-// y si falla, caer al snapshot directo de DB.
-const buildSessionStatusMap = async () => {
+// Fetch live status with same logic que la UI: primero status en vivo por sesión, luego fallback list + DB.
+const buildSessionStatusMap = async (sessionNames = []) => {
   const map = new Map();
+
+  // 1) Intentar status live por sesión (GET /status)
+  for (const name of sessionNames) {
+    try {
+      const st = await getStatusForSession(name);
+      map.set(name, {
+        status: (st?.status || '').toLowerCase(),
+        lastConnectedAt: st?.lastConnectedAt || null,
+        updatedAt: st?.updatedAt || null
+      });
+    } catch (_err) {
+      // ignore per-session errors; fallback later
+    }
+  }
+
+  // Si ya tenemos todos, retorna
+  if (map.size === sessionNames.length && sessionNames.length > 0) return map;
+
+  // 2) Lote via listSessions (live-ish)
   try {
     const sessions = await listLiveWhatsappSessions();
     sessions.forEach((s) => {
       const name = s.session || s.sessionName || s.id;
       if (!name) return;
+      if (map.has(name)) return;
       map.set(name, {
         status: (s.status || '').toLowerCase(),
         lastConnectedAt: s.lastConnectedAt || s.last_connected_at || null,
         updatedAt: s.updatedAt || s.updated_at || null
       });
     });
-    if (map.size) return map;
   } catch (_err) {
-    // fallback below
+    // ignore; go to DB
   }
-  const sessions = await listWhatsappSessions();
-  sessions.forEach((s) => {
-    map.set(s.sessionName, {
-      status: (s.status || '').toLowerCase(),
-      lastConnectedAt: s.lastConnectedAt,
-      updatedAt: s.updatedAt
+
+  // 3) DB snapshot fallback
+  if (map.size < sessionNames.length) {
+    const sessions = await listWhatsappSessions();
+    sessions.forEach((s) => {
+      if (map.has(s.sessionName)) return;
+      map.set(s.sessionName, {
+        status: (s.status || '').toLowerCase(),
+        lastConnectedAt: s.lastConnectedAt,
+        updatedAt: s.updatedAt
+      });
     });
-  });
+  }
+
   return map;
 };
 
@@ -216,7 +243,7 @@ export const selectAutoConnectionForChat = async ({ user, tenantId = null, queue
   }
 
   // 3) Enriquecer con estado actual y métricas livianas
-  const statusMap = await buildSessionStatusMap();
+  const statusMap = await buildSessionStatusMap(filtered.map((c) => c.sessionName));
   const sessionNames = filtered.map((c) => c.sessionName);
   const { load, traffic, errors } = await buildSessionMetrics(sessionNames);
 
