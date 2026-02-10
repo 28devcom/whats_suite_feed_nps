@@ -7,8 +7,19 @@ import {
 } from '../infra/db/queueConnectionRepository.js';
 import { listWhatsappSessions } from '../infra/db/whatsappSessionRepository.js';
 
-// Allowed connection statuses for selection (solo conexiones realmente operativas)
+// Allowed connection statuses for selección (solo conexiones realmente operativas)
 const ELIGIBLE_STATUSES = ['connected'];
+
+const isEffectivelyConnected = (status, lastConnectedAt) => {
+  const normalized = (status || '').toLowerCase();
+  if (ELIGIBLE_STATUSES.includes(normalized)) return true;
+  // Fallback: si el último conectado fue reciente (5 min), considérese operativa aunque el status no llegue actualizado.
+  if (lastConnectedAt) {
+    const ts = new Date(lastConnectedAt).getTime();
+    if (!Number.isNaN(ts) && Date.now() - ts <= 5 * 60 * 1000) return true;
+  }
+  return false;
+};
 
 // Metrics windows (minutes)
 const TRAFFIC_WINDOW_MIN = 15;
@@ -89,11 +100,12 @@ const buildSessionMetrics = async (sessionNames) => {
 
 // Scoring function; higher is better. Missing metrics are neutral (0 impact).
 const scoreSession = ({ status, load, traffic, errors, lastConnectedAt }) => {
-  if (!ELIGIBLE_STATUSES.includes(status)) return -Infinity;
+  if (!isEffectivelyConnected(status, lastConnectedAt)) return -Infinity;
 
   let score = 0;
-  // Status weight (solo connected puntúa; otros estados son excluidos arriba)
-  if (status === 'connected') score += 3;
+  // Status weight (solo connected puntúa; otros estados se filtran en isEffectivelyConnected)
+  const normalized = (status || '').toLowerCase();
+  if (normalized === 'connected') score += 3;
 
   // Load penalties
   const open = load?.open ?? null;
