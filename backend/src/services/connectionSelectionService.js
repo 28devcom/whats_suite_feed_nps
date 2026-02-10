@@ -6,6 +6,7 @@ import {
   listQueuesForSessionAndUser
 } from '../infra/db/queueConnectionRepository.js';
 import { listWhatsappSessions } from '../infra/db/whatsappSessionRepository.js';
+import { listSessions as listLiveWhatsappSessions } from './whatsappService.js';
 
 // Allowed connection statuses for selección (solo conexiones realmente operativas)
 const ELIGIBLE_STATUSES = ['connected'];
@@ -25,10 +26,26 @@ const isEffectivelyConnected = (status, lastConnectedAt) => {
 const TRAFFIC_WINDOW_MIN = 15;
 const ERROR_WINDOW_MIN = 30;
 
-// Fetch live-ish session status info; falls back to DB state only
+// Fetch live-ish session status info; prefer same pipeline que usa la página de Conexiones (whatsappService.listSessions),
+// y si falla, caer al snapshot directo de DB.
 const buildSessionStatusMap = async () => {
-  const sessions = await listWhatsappSessions();
   const map = new Map();
+  try {
+    const sessions = await listLiveWhatsappSessions();
+    sessions.forEach((s) => {
+      const name = s.session || s.sessionName || s.id;
+      if (!name) return;
+      map.set(name, {
+        status: (s.status || '').toLowerCase(),
+        lastConnectedAt: s.lastConnectedAt || s.last_connected_at || null,
+        updatedAt: s.updatedAt || s.updated_at || null
+      });
+    });
+    if (map.size) return map;
+  } catch (_err) {
+    // fallback below
+  }
+  const sessions = await listWhatsappSessions();
   sessions.forEach((s) => {
     map.set(s.sessionName, {
       status: (s.status || '').toLowerCase(),
