@@ -7,8 +7,8 @@ import {
 } from '../infra/db/queueConnectionRepository.js';
 import { listWhatsappSessions } from '../infra/db/whatsappSessionRepository.js';
 
-// Allowed connection statuses for selection
-const ELIGIBLE_STATUSES = ['connected', 'reconnecting', 'pending'];
+// Allowed connection statuses for selection (solo conexiones realmente operativas)
+const ELIGIBLE_STATUSES = ['connected'];
 
 // Metrics windows (minutes)
 const TRAFFIC_WINDOW_MIN = 15;
@@ -92,9 +92,8 @@ const scoreSession = ({ status, load, traffic, errors, lastConnectedAt }) => {
   if (!ELIGIBLE_STATUSES.includes(status)) return -Infinity;
 
   let score = 0;
-  // Status weight
+  // Status weight (solo connected puntúa; otros estados son excluidos arriba)
   if (status === 'connected') score += 3;
-  else if (status === 'reconnecting') score += 1;
 
   // Load penalties
   const open = load?.open ?? null;
