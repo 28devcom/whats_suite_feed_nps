@@ -9,6 +9,7 @@ const WhatsAppSessionsList = ({
   onRequestPairing,
   onReconnect,
   onRenewQr,
+  onResetAuth,
   onDisconnect,
   onDelete,
   onRefresh,
@@ -47,6 +48,7 @@ const WhatsAppSessionsList = ({
                 onRequestPairing={onRequestPairing}
                 onReconnect={onReconnect}
                 onRenewQr={onRenewQr}
+                onResetAuth={onResetAuth}
                 onDisconnect={onDisconnect}
                 onDelete={onDelete}
                 onRefresh={onRefresh}

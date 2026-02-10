@@ -27,7 +27,8 @@ const WhatsappConnectionsContent = () => {
       clearPairing,
       loadExistingSessions,
       updateSyncHistory,
-      renewQr
+      renewQr,
+      resetAuth
     }
   } = useWhatsappSessions();
   const [newSessionId, setNewSessionId] = useState('');
@@ -82,6 +83,7 @@ const WhatsappConnectionsContent = () => {
         onRequestPairing={requestPairing}
         onReconnect={reconnect}
         onRenewQr={renewQr}
+        onResetAuth={resetAuth}
         onDisconnect={disconnect}
         onDelete={deleteSession}
         onRefresh={syncSession}

@@ -7,6 +7,7 @@ import {
   requestPairingCodeApi,
   reconnectSessionApi,
   renewQrSessionApi,
+  resetAuthSessionApi,
   disconnectSessionApi,
   deleteSessionApi,
   updateSessionSettingsApi
@@ -429,6 +430,38 @@ export const WhatsappSessionsProvider = ({ children }) => {
     [apiClientInstance, logout, syncSession, auditService, startPolling]
   );
 
+  const resetAuth = useCallback(
+    async (sessionId = 'default') => {
+      const cleanId = (sessionId || 'default').trim();
+      dispatch({
+        type: 'SET_SESSION',
+        id: cleanId,
+        patch: {
+          loading: true,
+          error: null,
+          status: 'pending',
+          qr: null,
+          qrBase64: null,
+          pairingCode: null,
+          hasStoredKeys: false
+        }
+      });
+      dispatch({ type: 'SET_ACTIVE_QR', id: cleanId });
+      try {
+        await resetAuthSessionApi(apiClientInstance, cleanId);
+        await syncSession(cleanId);
+        startPolling(cleanId);
+        auditService
+          .sendEvent({ event: 'whatsapp_force_new_qr', metadata: { sessionId: cleanId } })
+          .catch(() => {});
+      } catch (err) {
+        const message = await handleApiError(err, logout, dispatch, auditService, 'reset_auth');
+        dispatch({ type: 'SET_SESSION', id: cleanId, patch: { loading: false, error: message } });
+      }
+    },
+    [apiClientInstance, logout, syncSession, auditService, startPolling]
+  );
+
   const disconnect = useCallback(
     async (sessionId = 'default') => {
       dispatch({ type: 'SET_SESSION', id: sessionId, patch: { loading: true, error: null } });
@@ -506,6 +539,7 @@ export const WhatsappSessionsProvider = ({ children }) => {
           requestPairing,
           reconnect,
           renewQr,
+          resetAuth,
           disconnect,
           updateSyncHistory,
           setPhone,
@@ -527,6 +561,7 @@ export const WhatsappSessionsProvider = ({ children }) => {
       requestPairing,
       reconnect,
       renewQr,
+      resetAuth,
       disconnect,
       updateSyncHistory,
       setPhone

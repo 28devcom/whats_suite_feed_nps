@@ -7,6 +7,7 @@ import {
   getStatusController,
   reconnectController,
   renewQrController,
+  resetAuthController,
   disconnectController,
   deleteSessionController,
   updateSessionSettingsController
@@ -26,6 +27,7 @@ router.get('/sessions/:id/status', authorize(ROLES.ADMIN, ROLES.SUPERVISOR, ROLE
 router.patch('/sessions/:id/settings', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), updateSessionSettingsController);
 router.post('/sessions/:id/reconnect', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), reconnectController);
 router.post('/sessions/:id/renew-qr', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), renewQrController);
+router.post('/sessions/:id/reset-auth', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), resetAuthController);
 router.post('/sessions/:id/disconnect', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), disconnectController);
 router.delete('/sessions/:id', authorize(ROLES.ADMIN, ROLES.SUPERVISOR), deleteSessionController);
 

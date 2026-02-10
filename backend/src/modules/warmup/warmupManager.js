@@ -7,13 +7,14 @@ import { isAllowed, getSelection, setSelection } from '../../services/warmupSele
 
 let engine = null;
 let scheduler = null;
-const autoStart = process.env.WARMUP_AUTOSTART !== 'false';
+// Por defecto NO auto-iniciar; requiere acción manual. Solo se autostartea si WARMUP_AUTOSTART=true explícitamente.
+const autoStart = process.env.WARMUP_AUTOSTART === 'true';
 
 const buildEngine = () => {
   if (engine) return engine;
   engine = createWarmupEngine({
     allowSend: true,
-    simulate: false
+    simulate: true // modo simulación por defecto; no debe enviar hasta que se desactive manualmente
   });
   return engine;
 };
@@ -46,6 +47,8 @@ const buildScheduler = () => {
     fetchLines,
     frequencyMs: 120_000
   });
+  // Estado inicial pausado siempre; solo se arranca si se indica explícitamente.
+  scheduler.pause();
   if (autoStart) {
     scheduler.start();
   }

@@ -155,15 +155,21 @@ const ChatView = () => {
   });
   const [newChatLoading, setNewChatLoading] = useState(false);
   const [availableConnections, setAvailableConnections] = useState([]);
+  const connectedConnections = useMemo(
+    () => availableConnections.filter((c) => (c.status || '').toLowerCase() === 'connected'),
+    [availableConnections]
+  );
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const contactLoadingRef = useRef(new Set());
   const pickBestConnection = useCallback((conns = [], targetQueueId = null) => {
     if (!Array.isArray(conns) || !conns.length) return '';
-    const weight = { connected: 3, reconnecting: 2, pending: 1, unknown: 0 };
+    const normalize = (s) => (s || '').toLowerCase();
+    const eligible = conns.filter((c) => normalize(c.status) === 'connected');
     const candidates = targetQueueId
-      ? conns.filter((c) => (c.queues || []).some((q) => q.id === targetQueueId))
-      : conns;
+      ? eligible.filter((c) => (c.queues || []).some((q) => q.id === targetQueueId))
+      : eligible;
     if (!candidates.length) return '';
+    const weight = { connected: 3 };
     const sorted = [...candidates].sort((a, b) => {
       const wa = weight[a.status] ?? 0;
       const wb = weight[b.status] ?? 0;
@@ -1740,9 +1746,11 @@ const ChatView = () => {
               <FormHelperText sx={{ minHeight: 20, lineHeight: 1.2 }}>
                 {connectionsLoading
                   ? 'Cargando conexiones asignadas...'
-                  : availableConnections.length
-                    ? 'Solo conexiones asignadas por colas'
-                    : 'Solicita asignación de cola para crear chats'}
+                  : availableConnections.length && !connectedConnections.length
+                    ? 'No hay conexiones en estado conectado; espera a que alguna se conecte.'
+                    : availableConnections.length
+                      ? 'Solo conexiones asignadas por colas'
+                      : 'Solicita asignación de cola para crear chats'}
               </FormHelperText>
             </FormControl>
             <FormControl

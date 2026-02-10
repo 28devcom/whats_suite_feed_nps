@@ -25,6 +25,7 @@ const WhatsAppSessionCard = ({
   onRequestPairing,
   onReconnect,
   onRenewQr,
+  onResetAuth,
   onDisconnect,
   onDelete,
   onRefresh,
@@ -43,6 +44,7 @@ const WhatsAppSessionCard = ({
   const canPair = !everConnected && !connected;
   const canReconnect = everConnected && !connected;
   const canDisconnect = connected;
+  const canResetAuth = !disabled; // always allow trigger unless loading
 
   const phoneValid = /^[0-9]{8,15}$/.test(session.phone || '');
   const syncHistory = Boolean(session.syncHistory);
@@ -160,6 +162,17 @@ const WhatsAppSessionCard = ({
               disabled={disabled}
             >
               Nuevo QR
+            </Button>
+          )}
+
+          {canResetAuth && (
+            <Button
+              variant="outlined"
+              color="warning"
+              onClick={() => onResetAuth?.(sessionId)}
+              disabled={disabled}
+            >
+              Generar nuevo QR
             </Button>
           )}
 

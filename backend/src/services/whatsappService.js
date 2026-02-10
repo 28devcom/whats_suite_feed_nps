@@ -497,6 +497,35 @@ export const renewQrSession = async (sessionName, { userId = null, ip = null, te
   });
 };
 
+export const resetSessionAuth = async (
+  sessionName,
+  { userId = null, ip = null, tenantId = null, userAgent = null } = {}
+) => {
+  const name = normalizeSessionName(sessionName);
+  deletedSessions.delete(name);
+  const record = await ensureSessionRecord(name, { tenantId });
+  if (record) {
+    record.context = { userId, ip, userAgent };
+  }
+
+  await recordWhatsAppAudit({
+    sessionName: name,
+    event: 'session_force_new_qr',
+    userId,
+    ip,
+    userAgent,
+    tenantId: record?.tenantId || tenantId
+  }).catch(() => {});
+
+  return reconnectSession(name, {
+    userId,
+    ip,
+    tenantId: record?.tenantId || tenantId,
+    userAgent,
+    resetAuth: true
+  });
+};
+
 export const shutdownWhatsAppSessions = async () => {
   for (const [name, record] of sessions.entries()) {
     try {

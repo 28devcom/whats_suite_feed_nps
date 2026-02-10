@@ -48,6 +48,12 @@ export const renewQrSessionApi = async (client, sessionId = 'default') => {
   return res;
 };
 
+export const resetAuthSessionApi = async (client, sessionId = 'default') => {
+  const res = await client.request(`/whatsapp/sessions/${sessionId}/reset-auth`, { method: 'POST' });
+  if (!res) throw new ApiError('Respuesta inválida', 400);
+  return res;
+};
+
 export const disconnectSessionApi = async (client, sessionId = 'default') => {
   const res = await client.request(`/whatsapp/sessions/${sessionId}/disconnect`, { method: 'POST' });
   if (!res) throw new ApiError('Respuesta inválida', 400);
