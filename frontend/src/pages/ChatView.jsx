@@ -161,27 +161,6 @@ const ChatView = () => {
   );
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const contactLoadingRef = useRef(new Set());
-  const pickBestConnection = useCallback((conns = [], targetQueueId = null) => {
-    if (!Array.isArray(conns) || !conns.length) return '';
-    const normalize = (s) => (s || '').toLowerCase();
-    const eligible = conns.filter((c) => normalize(c.status) === 'connected');
-    const candidates = targetQueueId
-      ? eligible.filter((c) => (c.queues || []).some((q) => q.id === targetQueueId))
-      : eligible;
-    if (!candidates.length) return '';
-    const weight = { connected: 3 };
-    const sorted = [...candidates].sort((a, b) => {
-      const wa = weight[a.status] ?? 0;
-      const wb = weight[b.status] ?? 0;
-      if (wb !== wa) return wb - wa;
-      // Prefer conexiones con menos colas (más específicas al asesor)
-      const qa = (a.queues || []).length;
-      const qb = (b.queues || []).length;
-      if (qa !== qb) return qa - qb;
-      return (a.name || '').localeCompare(b.name || '');
-    });
-    return sorted[0]?.name || '';
-  }, []);
   const selectedCountry = useMemo(
     () => COUNTRY_OPTIONS.find((c) => c.code === newChatForm.countryCode) || COUNTRY_OPTIONS[0],
     [newChatForm.countryCode]
@@ -546,28 +525,6 @@ const ChatView = () => {
       loadConnectionsCatalog();
     }
   }, [newChatOpen, loadConnectionsCatalog]);
-
-  // Autoseleccionar conexión al abrir modal (no editable), basada en conexiones habilitadas para el asesor y colas asociadas.
-  useEffect(() => {
-    if (!newChatOpen) return;
-    if (newChatForm.sessionName) return;
-    const best = pickBestConnection(availableConnections, newChatForm.queueId || null);
-    if (best) {
-      setNewChatForm((prev) => ({ ...prev, sessionName: best, queueId: '' }));
-    }
-  }, [newChatOpen, availableConnections, newChatForm.sessionName, newChatForm.queueId, pickBestConnection]);
-
-  // Si el usuario elige una cola incompatible con la conexión actual, mover la conexión a la mejor que soporte esa cola.
-  useEffect(() => {
-    if (!newChatOpen || !newChatForm.queueId) return;
-    const current = availableConnections.find((c) => c.name === newChatForm.sessionName);
-    const currentSupportsQueue = current && (current.queues || []).some((q) => q.id === newChatForm.queueId);
-    if (currentSupportsQueue) return;
-    const best = pickBestConnection(availableConnections, newChatForm.queueId);
-    if (best && best !== newChatForm.sessionName) {
-      setNewChatForm((prev) => ({ ...prev, sessionName: best }));
-    }
-  }, [newChatOpen, newChatForm.queueId, newChatForm.sessionName, availableConnections, pickBestConnection]);
 
   useEffect(() => {
     refreshWhatsappStatuses();
@@ -1712,7 +1669,7 @@ const ChatView = () => {
               renderInput={(params) => <TextField {...params} label="País" placeholder="Selecciona el país" />}
             />
 
-            <FormControl fullWidth disabled size="small">
+            <FormControl fullWidth disabled={connectionsLoading || availableConnections.length === 0} size="small">
               <InputLabel id="new-chat-connection-label" shrink>
                 Conexión WhatsApp
               </InputLabel>
@@ -1720,7 +1677,16 @@ const ChatView = () => {
                 labelId="new-chat-connection-label"
                 label="Conexión WhatsApp"
                 value={newChatForm.sessionName}
-                onChange={() => {}}
+                onChange={(e) => {
+                  const sessionName = e.target.value;
+                  const selected = availableConnections.find((c) => c.name === sessionName);
+                  const selectedQueues = selected?.queues || [];
+                  setNewChatForm((prev) => {
+                    const keepQueue = prev.queueId && selectedQueues.some((q) => q.id === prev.queueId);
+                    const queueId = keepQueue ? prev.queueId : selectedQueues.length === 1 ? selectedQueues[0].id : '';
+                    return { ...prev, sessionName, queueId };
+                  });
+                }}
                 displayEmpty
                 renderValue={(val) =>
                   val ? (
