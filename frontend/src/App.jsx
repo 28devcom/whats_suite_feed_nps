@@ -20,6 +20,11 @@ const Settings = lazy(() => import('./pages/Settings.jsx'));
 const NotFound = lazy(() => import('./pages/NotFound.jsx'));
 const QuickReplies = lazy(() => import('./pages/QuickReplies.jsx'));
 const Warmup = lazy(() => import('./pages/Warmup.jsx'));
+const Feedback = lazy(() => import('./pages/Feedback/Feedback.jsx'));
+const PostSalesAnalytics = lazy(() => import('./pages/Analytics/PostSalesAnalytics.jsx'));
+const Appointments = lazy(() => import('./pages/Appointments/Appointments.jsx'));
+const Followup = lazy(() => import('./pages/Followup/Followup.jsx'));
+const Retention = lazy(() => import('./pages/Retention/Retention.jsx'));
 
 const RoleLanding = () => {
   const { user } = useAuth();
@@ -71,6 +76,46 @@ const App = () => {
             element={
               <PermissionGate roles={['ADMIN', 'SUPERVISOR']} fallback={<AccessDenied />}>
                 <Warmup />
+              </PermissionGate>
+            }
+          />
+          <Route
+            path="/feedback"
+            element={
+              <PermissionGate roles={['ADMIN', 'SUPERVISOR']} fallback={<AccessDenied />}>
+                <Feedback />
+              </PermissionGate>
+            }
+          />
+          <Route
+            path="/post-sales-analytics"
+            element={
+              <PermissionGate roles={['ADMIN', 'SUPERVISOR']} fallback={<AccessDenied />}>
+                <PostSalesAnalytics />
+              </PermissionGate>
+            }
+          />
+          <Route
+            path="/appointments"
+            element={
+              <PermissionGate roles={['ADMIN', 'SUPERVISOR']} fallback={<AccessDenied />}>
+                <Appointments />
+              </PermissionGate>
+            }
+          />
+          <Route
+            path="/followup"
+            element={
+              <PermissionGate roles={['ADMIN', 'SUPERVISOR']} fallback={<AccessDenied />}>
+                <Followup />
+              </PermissionGate>
+            }
+          />
+          <Route
+            path="/retention"
+            element={
+              <PermissionGate roles={['ADMIN', 'SUPERVISOR']} fallback={<AccessDenied />}>
+                <Retention />
               </PermissionGate>
             }
           />

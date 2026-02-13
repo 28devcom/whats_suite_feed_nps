@@ -73,7 +73,7 @@ WhatsSuite é uma plataforma empresarial de mensagens e atendimento ao cliente f
 ### 2. Características Principais
 - Autenticação JWT com sessões revogáveis no Redis e controle de acesso baseado em funções (ADMIN, SUPERVISOR, AGENTE).
 - Gerenciamento de conversas e atribuições (auto-atribuição agendada, filas, redirecionamento).
-- Módulos de dashboard, broadcast/campanhas, respostas rápidas, usuários, filas e configurações.
+- Módulos de dashboard, broadcast/campanhas, respostas rápidas, usuários, filas, configurações, feedback pós-atendimento, análise de pós-venda, agendamentos, follow-up inteligente e retenção.
 - Integração preparada para WhatsApp via Baileys.
 - Middleware de hardening: HTTPS forçado, rate limiting, sanitização de entrada, backpressure e helmet.
 - Arquitetura dockerizada com Nginx como proxy reverso TLS e healthchecks em todos os serviços.
@@ -99,13 +99,13 @@ WhatsSuite é uma plataforma empresarial de mensagens e atendimento ao cliente f
 - `storage/`: Armazenamento de mídia e sons; `storage/media` é montado no backend.
 - `backend/`:
   - `Dockerfile`: Imagem Node 20-alpine, instala dependências de produção e healthcheck HTTP.
-  - `migrations/`: SQL para papéis/usuários, auditoria, conversas, mensagens, campanhas, multitenancy, retenção, quick replies, controle de chats e WhatsApp.
+  - `migrations/`: SQL para papéis/usuários, auditoria, conversas, mensagens, campanhas, multitenancy, retenção, quick replies, controle de chats, WhatsApp, feedback, agendamentos e follow-up.
   - `scripts/seedAdmin.js`: Seed para criar usuário ADMIN inicial.
   - `src/`: App Express (`app.js`), inicialização (`server.js`), configuração (`config/env.js`), middlewares, serviços, infraestrutura (`infra`), módulos de negócio e `whatsapp/` (bootstrap sem conexão ativa).
 - `frontend/`:
   - `Dockerfile`: Build Vite com `VITE_API_BASE_URL`; serve estáticos com Nginx.
   - `nginx.conf`: Servidor de arquivos estáticos com gzip e `/health`.
-  - `src/`: Aplicação React com rotas protegidas, cliente API, sockets de eventos, feature flags e páginas (Login, Chat, Dashboard, Broadcast, WhatsApp, Filas, Usuários, Configurações, Quick Replies).
+  - `src/`: Aplicação React com rotas protegidas, cliente API, sockets de eventos, feature flags e páginas (Login, Chat, Dashboard, Broadcast, WhatsApp, Filas, Usuários, Configurações, Quick Replies, Feedback, Análise Pós-Venda, Agendamentos, Follow-up, Retenção).
 - `.dockerignore`: Exclui `node_modules`, `.env`, `.git` nos builds.
 - `.env.example`: Template de variáveis para backend, frontend e serviços.
 

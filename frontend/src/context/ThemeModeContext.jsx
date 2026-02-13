@@ -6,19 +6,17 @@ const ThemeModeContext = createContext(null);
 
 const storageKey = 'whatssuite-theme-mode';
 const DEFAULT_MODE = 'light';
-const DARK_MODE_ENABLED = false; // Mantiene la estructura lista sin activar el modo oscuro aún.
+const DARK_MODE_ENABLED = true; // Habilitado por solicitação do usuário.
 
 export const ThemeModeProvider = ({ children }) => {
   const [mode, setMode] = useState(DEFAULT_MODE);
 
   useEffect(() => {
-    if (!DARK_MODE_ENABLED) return;
     const stored = localStorage.getItem(storageKey);
     if (stored && themes[stored]) setMode(stored);
   }, []);
 
   const toggleMode = () => {
-    if (!DARK_MODE_ENABLED) return;
     setMode((prev) => {
       const next = prev === 'dark' ? 'light' : 'dark';
       localStorage.setItem(storageKey, next);
@@ -26,9 +24,8 @@ export const ThemeModeProvider = ({ children }) => {
     });
   };
 
-  const activeMode = DARK_MODE_ENABLED ? mode : DEFAULT_MODE;
-  const value = useMemo(() => ({ mode: activeMode, toggleMode }), [activeMode]);
-  const theme = themes[activeMode] || defaultTheme;
+  const value = useMemo(() => ({ mode, toggleMode }), [mode]);
+  const theme = themes[mode] || defaultTheme;
 
   return (
     <ThemeModeContext.Provider value={value}>

@@ -3,8 +3,11 @@ import { Avatar, Box, Divider, IconButton, List, ListItemButton, ListItemIcon, L
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import MenuIcon from '@mui/icons-material/Menu';
 import LogoutIcon from '@mui/icons-material/Logout';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import LightModeIcon from '@mui/icons-material/LightMode';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useThemeMode } from '../context/ThemeModeContext.jsx';
 import { navigationSections, filterSectionsByRole } from '../config/navigation.config.js';
 import { alpha } from '@mui/material/styles';
 
@@ -12,6 +15,7 @@ const storageKey = 'whatssuite-sidebar-open';
 
 const Sidebar = ({ open, onToggle }) => {
   const { user, logout } = useAuth();
+  const { mode, toggleMode } = useThemeMode();
   const location = useLocation();
 
   useEffect(() => {
@@ -115,9 +119,14 @@ const Sidebar = ({ open, onToggle }) => {
             </Typography>
           </Stack>
         )}
-        <IconButton size="small" onClick={onToggle}>
-          {open ? <MenuOpenIcon /> : <MenuIcon />}
-        </IconButton>
+        <Stack direction="row" spacing={0.5}>
+          <IconButton size="small" onClick={toggleMode} title={mode === 'light' ? 'Ativar Modo Escuro' : 'Ativar Modo Claro'}>
+            {mode === 'light' ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}
+          </IconButton>
+          <IconButton size="small" onClick={onToggle}>
+            {open ? <MenuOpenIcon /> : <MenuIcon />}
+          </IconButton>
+        </Stack>
       </Stack>
       <Divider />
       <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', mt: 1 }}>
