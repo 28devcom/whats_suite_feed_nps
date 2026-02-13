@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -17,23 +17,26 @@ import {
   CircularProgress
 } from '@mui/material';
 import {
-  Group as GroupIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon
 } from '@mui/icons-material';
-import api from '../../services/api';
+import createApiService from '../../services/api.service.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotify } from '../../context/NotifyContext.jsx';
 
 const Retention = () => {
+  const { user } = useAuth();
   const { notify } = useNotify();
+  const api = useMemo(() => createApiService({ getToken: () => user?.token }), [user]);
+
   const [stats, setStats] = useState(null);
   const [atRisk, setAtRisk] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [api]);
 
   const fetchData = async () => {
     try {
@@ -41,8 +44,8 @@ const Retention = () => {
         api.get('/retention/stats'),
         api.get('/retention/at-risk')
       ]);
-      setStats(statsRes.data);
-      setAtRisk(atRiskRes.data);
+      setStats(statsRes);
+      setAtRisk(atRiskRes);
     } catch (error) {
       notify('Erro ao carregar dados de retenção', 'error');
     } finally {

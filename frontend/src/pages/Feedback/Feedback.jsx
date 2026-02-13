@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -29,16 +29,19 @@ import {
   Settings as SettingsIcon,
   Dashboard as DashboardIcon,
   History as HistoryIcon,
-  Delete as DeleteIcon,
-  Star as StarIcon
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
-import api from '../../services/api';
+import createApiService from '../../services/api.service.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotify } from '../../context/NotifyContext.jsx';
 
 const Feedback = () => {
   const theme = useTheme();
+  const { user } = useAuth();
   const { notify } = useNotify();
+  const api = useMemo(() => createApiService({ getToken: () => user?.token }), [user]);
+
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({
@@ -60,7 +63,7 @@ const Feedback = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [api]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -71,10 +74,10 @@ const Feedback = () => {
         api.get('/feedback/settings'),
         api.get('/feedback/responses')
       ]);
-      setStats(statsRes.data);
-      setTemplates(templatesRes.data);
-      setSettings(settingsRes.data);
-      setResponses(responsesRes.data);
+      setStats(statsRes);
+      setTemplates(templatesRes);
+      setSettings(settingsRes);
+      setResponses(responsesRes);
     } catch (error) {
       notify('Erro ao carregar dados de feedback', 'error');
     } finally {

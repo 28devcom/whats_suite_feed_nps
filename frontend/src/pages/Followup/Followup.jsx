@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -24,15 +24,17 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Delete as DeleteIcon,
-  AutoFixHigh as AutoFixHighIcon,
-  History as HistoryIcon
+  Delete as DeleteIcon
 } from '@mui/icons-material';
-import api from '../../services/api';
+import createApiService from '../../services/api.service.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotify } from '../../context/NotifyContext.jsx';
 
 const Followup = () => {
+  const { user } = useAuth();
   const { notify } = useNotify();
+  const api = useMemo(() => createApiService({ getToken: () => user?.token }), [user]);
+
   const [rules, setRules] = useState([]);
   const [logs, setLogs] = useState([]);
   const [openDialog, setOpenDialog] = useState(false);
@@ -44,7 +46,7 @@ const Followup = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [api]);
 
   const fetchData = async () => {
     try {
@@ -52,8 +54,8 @@ const Followup = () => {
         api.get('/followup/rules'),
         api.get('/followup/logs')
       ]);
-      setRules(rulesRes.data);
-      setLogs(logsRes.data);
+      setRules(rulesRes);
+      setLogs(logsRes);
     } catch (error) {
       notify('Erro ao carregar dados de follow-up', 'error');
     }

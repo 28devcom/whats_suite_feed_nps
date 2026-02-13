@@ -1,11 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
   Button,
-  Grid,
-  Card,
-  CardContent,
   Table,
   TableBody,
   TableCell,
@@ -25,15 +22,18 @@ import {
 import {
   Add as AddIcon,
   Delete as DeleteIcon,
-  Event as EventIcon,
   Check as CheckIcon,
   Close as CloseIcon
 } from '@mui/icons-material';
-import api from '../../services/api';
+import createApiService from '../../services/api.service.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotify } from '../../context/NotifyContext.jsx';
 
 const Appointments = () => {
+  const { user } = useAuth();
   const { notify } = useNotify();
+  const api = useMemo(() => createApiService({ getToken: () => user?.token }), [user]);
+
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
@@ -46,12 +46,12 @@ const Appointments = () => {
 
   useEffect(() => {
     fetchAppointments();
-  }, []);
+  }, [api]);
 
   const fetchAppointments = async () => {
     try {
       const res = await api.get('/appointments');
-      setAppointments(res.data);
+      setAppointments(res);
     } catch (error) {
       notify('Erro ao carregar agendamentos', 'error');
     } finally {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -15,22 +15,26 @@ import {
   ThumbUp as ThumbUpIcon,
   Warning as WarningIcon
 } from '@mui/icons-material';
-import api from '../../services/api';
+import createApiService from '../../services/api.service.js';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { useNotify } from '../../context/NotifyContext.jsx';
 
 const PostSalesAnalytics = () => {
+  const { user } = useAuth();
   const { notify } = useNotify();
+  const api = useMemo(() => createApiService({ getToken: () => user?.token }), [user]);
+
   const [loading, setLoading] = useState(true);
   const [kpis, setKpis] = useState(null);
 
   useEffect(() => {
     fetchKpis();
-  }, []);
+  }, [api]);
 
   const fetchKpis = async () => {
     try {
       const res = await api.get('/post-sales-analytics/kpis');
-      setKpis(res.data);
+      setKpis(res);
     } catch (error) {
       notify('Erro ao carregar KPIs de pós-venda', 'error');
     } finally {
