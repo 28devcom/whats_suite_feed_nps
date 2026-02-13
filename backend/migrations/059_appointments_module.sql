@@ -3,7 +3,7 @@
 -- Appointments
 CREATE TABLE appointments (
     id SERIAL PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
+    tenant_id UUID NOT NULL,
     customer_phone VARCHAR(50) NOT NULL,
     customer_name VARCHAR(255),
     start_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE appointments (
 CREATE TABLE appointment_reminders (
     id SERIAL PRIMARY KEY,
     appointment_id INTEGER NOT NULL,
-    tenant_id INTEGER NOT NULL,
+    tenant_id UUID NOT NULL,
     reminder_type VARCHAR(50) NOT NULL, -- 24H_BEFORE, 1H_BEFORE
     scheduled_at TIMESTAMP WITH TIME ZONE NOT NULL,
     sent_at TIMESTAMP WITH TIME ZONE,

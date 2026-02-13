@@ -3,7 +3,7 @@
 -- Follow-up Rules
 CREATE TABLE followup_rules (
     id SERIAL PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
+    tenant_id UUID NOT NULL,
     name VARCHAR(255) NOT NULL,
     days_inactive INTEGER NOT NULL,
     message_template TEXT NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE followup_rules (
 -- Follow-up Logs
 CREATE TABLE followup_logs (
     id SERIAL PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
+    tenant_id UUID NOT NULL,
     customer_phone VARCHAR(50) NOT NULL,
     rule_id INTEGER NOT NULL,
     sent_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

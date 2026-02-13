@@ -3,7 +3,7 @@
 -- Feedback Templates
 CREATE TABLE feedback_templates (
     id SERIAL PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
+    tenant_id UUID NOT NULL,
     name VARCHAR(255) NOT NULL,
     type VARCHAR(50) NOT NULL DEFAULT 'NPS', -- NPS, CSAT, CES, OPEN
     message_text TEXT NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE feedback_templates (
 -- Feedback Settings
 CREATE TABLE feedback_settings (
     id SERIAL PRIMARY KEY,
-    tenant_id INTEGER NOT NULL UNIQUE,
+    tenant_id UUID NOT NULL UNIQUE,
     enabled BOOLEAN DEFAULT false,
     wait_time_hours INTEGER DEFAULT 2,
     trigger_event VARCHAR(50) DEFAULT 'CHAT_CLOSED',
@@ -31,7 +31,7 @@ CREATE TABLE feedback_settings (
 -- Feedback Responses
 CREATE TABLE feedback_responses (
     id SERIAL PRIMARY KEY,
-    tenant_id INTEGER NOT NULL,
+    tenant_id UUID NOT NULL,
     customer_phone VARCHAR(50) NOT NULL,
     conversation_id INTEGER,
     template_id INTEGER NOT NULL,
